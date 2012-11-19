@@ -19,8 +19,8 @@ type Link struct {
 	URL      *URL      `json:"url,omitempty"`
 	Unread   bool      `json:"read,omitempty"`
 	TimeRead time.Time `json:"time_read,omitempty"`
-	Sender   ruid.RUID `json:"sender,omitempty"`
-	Receiver ruid.RUID `json:"receiver,omitempty"`
+	Sender   Device    `json:"sender,omitempty"`
+	Receiver Device    `json:"receiver,omitempty"`
 	Comment  string    `json:"comment,omitempty"`
 	Sent     time.Time `json:"sent,omitempty"`
 }
@@ -41,7 +41,7 @@ func (r *RequestBundle) AddLinks(links []Link) ([]Link, error) {
 	return []Link{}, nil
 }
 
-func (r *RequestBundle) AddLink(address, comment string, sender, receiver ruid.RUID, unread bool) (Link, error) {
+func (r *RequestBundle) AddLink(address, comment string, sender, receiver Device, unread bool) (Link, error) {
 	link := Link {
 		URL: &URL {
 			Address: address,

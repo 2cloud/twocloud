@@ -27,4 +27,5 @@ type RequestBundle struct {
 	// Instrument
 	Request *http.Request
 	AuthUser User
+	Device  Device
 }

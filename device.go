@@ -28,15 +28,22 @@ type Pusher struct {
 	LastUsed time.Time `json:"last_used,omitempty"`
 }
 
+func (d *Device) ValidClientType() bool {
+	return d.ClientType == "android_phone" || d.ClientType == "android_tablet" || d.ClientType == "website" || d.ClientType == "chrome_extension"
+}
+
 func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 	return []Device{}, nil
 }
 
 func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
+	if r.Device.ID == id {
+		return r.Device, nil
+	}
 	return Device{}, nil
 }
 
-func (r *RequestBundle) AddDevice(name, client_type, ip, gcm_key string) (Device, error) {
+func (r *RequestBundle) AddDevice(name, client_type, ip, gcm_key string, user User) (Device, error) {
 	return Device{}, nil
 }
 
