@@ -15,6 +15,7 @@ type Device struct {
 	ClientType string    `json:"client_type,omitempty"`
 	Created    time.Time `json:"created,omitempty"`
 	Pushers    *Pushers  `json:"pushers,omitempty"`
+	UserID     ruid.RUID `json:"user_id,omitempty"`
 }
 
 type Pushers struct {
