@@ -18,16 +18,16 @@ type Name struct {
 }
 
 type User struct {
-	ID                ruid.RUID    `json:"id,omitempty"`
-	Username          string       `json:"username,omitempty"`
-	Email             string       `json:"email,omitempty"`
-	EmailUnconfirmed  bool         `json:"email_unconfirmed,omitempty"`
-	EmailConfirmation string       `json:"-"`
-	Secret            string       `json:"secret,omitempty"`
-	Joined            time.Time    `json:"joined,omitempty"`
-	Name              Name         `json:"name,omitempty"`
-	LastActive        time.Time    `json:"last_active,omitempty"`
-	IsAdmin           bool         `json:"is_admin,omitempty"`
+	ID                ruid.RUID     `json:"id,omitempty"`
+	Username          string        `json:"username,omitempty"`
+	Email             string        `json:"email,omitempty"`
+	EmailUnconfirmed  bool          `json:"email_unconfirmed,omitempty"`
+	EmailConfirmation string        `json:"-"`
+	Secret            string        `json:"secret,omitempty"`
+	Joined            time.Time     `json:"joined,omitempty"`
+	Name              Name          `json:"name,omitempty"`
+	LastActive        time.Time     `json:"last_active,omitempty"`
+	IsAdmin           bool          `json:"is_admin,omitempty"`
 	Subscription      *Subscription `json:"subscription,omitempty"`
 }
 
@@ -475,8 +475,124 @@ func (r *RequestBundle) GetUserID(username string) (ruid.RUID, error) {
 }
 
 func (r *RequestBundle) GetUsersByActivity(count int, active_after, active_before time.Time) ([]User, error) {
+	// start instrumentation
+	var reply *redis.Reply
+	var list []string
+	var err error
+	if !active_after.IsZero() && !active_before.IsZero() {
+		reply = r.Repo.client.Zrevrangebyscore("users_by_last_active", active_before.Unix(), active_after.Unix())
+		if reply.Err != nil {
+			r.Log.Error(reply.Err.Error())
+			return []User{}, reply.Err
+		}
+		list, err = reply.List()
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+	} else if !active_after.IsZero() && active_before.IsZero() {
+		reply = r.Repo.client.Zrangebyscore("users_by_last_active", active_before.Unix(), time.Now().Unix())
+		if reply.Err != nil {
+			r.Log.Error(reply.Err.Error())
+			return []User{}, reply.Err
+		}
+		list, err = reply.List()
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+		for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+			list[i], list[j] = list[j], list[i]
+		}
+	} else if active_after.IsZero() && !active_before.IsZero() {
+		reply = r.Repo.client.Zrevrangebyscore("users_by_last_active", active_before.Unix(), active_after.Unix())
+		if reply.Err != nil {
+			r.Log.Error(reply.Err.Error())
+			return []User{}, reply.Err
+		}
+		list, err = reply.List()
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+	} else {
+		reply = r.Repo.client.Zrevrangebyscore("users_by_last_active", time.Now().Unix(), active_after.Unix())
+		if reply.Err != nil {
+			r.Log.Error(reply.Err.Error())
+			return []User{}, reply.Err
+		}
+		list, err = reply.List()
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+	}
+	reply = r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
+		for pos, id := range list {
+			if pos >= count {
+				break
+			}
+			mc.Hgetall("users:" + id)
+		}
+	})
+	if reply.Err != nil {
+		r.Log.Error(reply.Err.Error())
+		return []User{}, reply.Err
+	}
+	var users []User
+	for pos, elem := range reply.Elems {
+		hash, err := elem.Hash()
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+		joined, err := time.Parse(time.RFC3339, hash["joined"])
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+		last_active, err := time.Parse(time.RFC3339, hash["last_active"])
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+		subscription_expires, err := time.Parse(time.RFC3339, hash["subscription_expires"])
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
+		id, err := ruid.RUIDFromString(list[pos])
+		if err != nil {
+			r.Log.Error(err.Error())
+			continue
+		}
+		user := User{
+			ID:                id,
+			Username:          hash["username"],
+			Email:             hash["email"],
+			EmailUnconfirmed:  hash["email_unconfirmed"] == "1",
+			EmailConfirmation: hash["email_confirmation"],
+			Secret:            hash["secret"],
+			Joined:            joined,
+			Name: Name{
+				Given:  hash["given_name"],
+				Family: hash["family_name"],
+			},
+			LastActive: last_active,
+			IsAdmin:    hash["is_admin"] == "1",
+			Subscription: &Subscription{
+				Expires:       subscription_expires,
+				ID:            hash["subscription_id"],
+				Active:        hash["subscription_active"] == "1",
+				InGracePeriod: hash["subscription_igp"] == "1",
+			},
+		}
+		users = append(users, user)
+	}
+	// stop instrumentation
+
 	// redis key users_by_last_active
-	return []User{}, nil
+	return users, nil
 }
 
 func (r *RequestBundle) GetUsersByJoinDate(count int, joined_after, joined_before time.Time) ([]User, error) {
