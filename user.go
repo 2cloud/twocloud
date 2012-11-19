@@ -329,10 +329,6 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 		}
 		reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 			mc.Hmset("users:"+user.ID.String(), changes)
-			val, set := changes["email_confirmation"]
-			if val.(bool) && set {
-				mc.Sadd("unconfirmed_emails", user.ID.String())
-			}
 		})
 		// add repo call to instrumentation
 		if reply.Err != nil {
@@ -378,7 +374,6 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		mc.Hmset("users:"+user.ID.String(), changes)
 		mc.Zadd("users_by_join_date", user.Joined.Unix(), user.ID.String())
-		mc.Sadd("unconfirmed_emails", user.ID.String())
 	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
@@ -489,11 +484,6 @@ func (r *RequestBundle) GetUsersByJoinDate(count int, joined_after, joined_befor
 	return []User{}, nil
 }
 
-func (r *RequestBundle) GetUsersByUnconfirmedEmail(count int) ([]User, error) {
-	// redis key unconfirmed_emails
-	return []User{}, nil
-}
-
 func (r *RequestBundle) UpdateUser(user User, email, given_name, family_name string, name_changed bool) error {
 	// start instrumentation
 	email = strings.TrimSpace(email)
@@ -585,8 +575,8 @@ func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
 		cred2 = tmpcred1
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Set("tokens:"+user.ID.String()+":"+cred1, cred2)
-		mc.Expire("tokens:"+user.ID.String()+":"+cred1, "300")
+		mc.Set("tokens:"+cred1+":"+cred2, user.ID.String())
+		mc.Expire("tokens:"+cred1+":"+cred2, "300")
 	})
 	// add the repo request to instrumentation
 	if reply.Err != nil {
@@ -602,7 +592,7 @@ func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
 	return [2]string{cred1, cred2}, nil
 }
 
-func (r *RequestBundle) CheckTempCredentials(id ruid.RUID, cred1, cred2 string) (bool, error) {
+func (r *RequestBundle) CheckTempCredentials(cred1, cred2 string) (ruid.RUID, error) {
 	// start instrumentation
 	firstcred := cred1
 	secondcred := cred2
@@ -610,23 +600,28 @@ func (r *RequestBundle) CheckTempCredentials(id ruid.RUID, cred1, cred2 string) 
 		firstcred = cred2
 		secondcred = cred1
 	}
-	reply := r.Repo.client.Get("tokens:" + id.String() + ":" + firstcred)
+	reply := r.Repo.client.Get("tokens:" + firstcred + ":" + secondcred)
 	// add the repo request to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
-		return false, reply.Err
+		return ruid.RUID(0), reply.Err
 	}
 	if reply.Type == redis.ReplyNil {
 		// add invalid credential error to stats
 		// add the repo requests to instrumentation
-		return false, InvalidCredentialsError
+		return ruid.RUID(0), InvalidCredentialsError
 	}
 	val, err := reply.Str()
 	if err != nil {
 		r.Log.Error(err.Error())
-		return false, err
+		return ruid.RUID(0), err
 	}
-	return val == secondcred, nil
+	id, err := ruid.RUIDFromString(val)
+	if err != nil {
+		r.Log.Error(err.Error())
+		return ruid.RUID(0), err
+	}
+	return id, nil
 	// stop instrumentation
 }
 
