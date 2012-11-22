@@ -746,6 +746,22 @@ func (r *RequestBundle) UpdateUser(user User, email, given_name, family_name str
 	return nil
 }
 
+func (r *RequestBundle) ResetSecret(user User) (User, error) {
+	// start instrumentation
+	secret, err := GenerateSecret()
+	if err != nil {
+		return User{}, err
+	}
+	user.Secret = secret
+	err = r.storeUser(user, true)
+	// add the repo request to instrumentation
+	if err != nil {
+		return User{}, err
+	}
+	// stop instrumentation
+	return user, nil
+}
+
 func (r *RequestBundle) VerifyEmail(user User, code string) error {
 	// start instrumentation
 	if !user.EmailUnconfirmed {
