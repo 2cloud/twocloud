@@ -518,13 +518,30 @@ func (r *RequestBundle) UpdateAccountTokens(account Account, access, refresh str
 	return nil
 }
 
-func (r *RequestBundle) UpdateAccountData() error {
+func (r *RequestBundle) UpdateAccountData(account Account) (Account, error) {
 	// start instrumentation
-	// report the repo request to instrumentation
-	// log the changes to the audit log
-	// report the repo request to instrumentation
-	// stop instrumentation
-	return nil
+	googAccount, err := r.getGoogleAccount(account.accessToken, account.refreshToken, account.expires)
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Account{}, err
+	}
+	account.Email = googAccount.Email
+	account.EmailVerified = googAccount.VerifiedEmail
+	account.DisplayName = googAccount.GivenName + " " + googAccount.FamilyName + " (" + googAccount.Email + ")"
+	account.GivenName = googAccount.GivenName
+	account.FamilyName = googAccount.FamilyName
+	account.Picture = googAccount.Picture
+	account.Timezone = googAccount.Timezone
+	account.Locale = googAccount.Locale
+	account.Gender = googAccount.Gender
+	err = r.storeAccount(account, true)
+	// add the repo request to the instrumentation
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Account{}, err
+	}
+	// stop the instrumentation
+	return account, nil
 }
 
 func (r *RequestBundle) AssociateUserWithAccount(account Account, user ruid.RUID) error {
