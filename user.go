@@ -32,10 +32,10 @@ type User struct {
 }
 
 type Subscription struct {
-	ID            string    `json:"-"`
-	Active        bool      `json:"active"`
-	InGracePeriod bool      `json:"in_grace_period"`
-	Expires       time.Time `json:"expires"`
+	ID            string    `json:"id,omitempty"`
+	Active        bool      `json:"active,omitempty"`
+	InGracePeriod bool      `json:"in_grace_period,omitempty"`
+	Expires       time.Time `json:"expires,omitempty"`
 }
 
 func GenerateTempCredentials() string {
