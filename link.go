@@ -128,7 +128,7 @@ func (r *RequestBundle) UpdateURL(count int) error {
 	return nil
 }
 
-func (r *RequestBundle) updateLink(link Link, unread bool, comment string) (Link, error) {
+func (r *RequestBundle) UpdateLink(link Link, unread bool, comment string) (Link, error) {
 	return Link{}, nil
 }
 
