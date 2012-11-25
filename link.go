@@ -1,8 +1,8 @@
 package twocloud
 
 import (
-	"github.com/fzzbt/radix/redis"
 	"github.com/PuerkitoBio/purell"
+	"github.com/fzzbt/radix/redis"
 	"secondbit.org/ruid"
 	"time"
 )
@@ -25,11 +25,19 @@ type Link struct {
 	Sent     time.Time `json:"sent,omitempty"`
 }
 
-func (r *RequestBundle) GetLinksByDevice(device Device, sender bool) ([]Link, error) {
+type RoleFlag int
+
+const (
+	RoleEither = iota
+	RoleSender
+	RoleReceiver
+)
+
+func (r *RequestBundle) GetLinksByDevice(device Device, role RoleFlag) ([]Link, error) {
 	return []Link{}, nil
 }
 
-func (r *RequestBundle) GetLinksByUser(user User, sender bool) ([]Link, error) {
+func (r *RequestBundle) GetLinksByUser(user User, role RoleFlag, before, after ruid.RUID, count int) ([]Link, error) {
 	return []Link{}, nil
 }
 
@@ -42,14 +50,14 @@ func (r *RequestBundle) AddLinks(links []Link) ([]Link, error) {
 }
 
 func (r *RequestBundle) AddLink(address, comment string, sender, receiver Device, unread bool) (Link, error) {
-	link := Link {
-		URL: &URL {
+	link := Link{
+		URL: &URL{
 			Address: address,
 		},
-		Unread: unread,
-		Sender: sender,
+		Unread:   unread,
+		Sender:   sender,
 		Receiver: receiver,
-		Comment: comment,
+		Comment:  comment,
 	}
 	resp, err := r.AddLinks([]Link{link})
 	if err != nil {
