@@ -28,12 +28,12 @@ type Link struct {
 type RoleFlag int
 
 const (
-	RoleEither = iota
+	RoleEither = RoleFlag(iota)
 	RoleSender
 	RoleReceiver
 )
 
-func (r *RequestBundle) GetLinksByDevice(device Device, role RoleFlag) ([]Link, error) {
+func (r *RequestBundle) GetLinksByDevice(device Device, role RoleFlag, before, after ruid.RUID, count int) ([]Link, error) {
 	return []Link{}, nil
 }
 
