@@ -7,7 +7,7 @@ import (
 )
 
 type Log struct {
-	logger *log.Logger
+	logger   *log.Logger
 	logLevel logLevel
 }
 
@@ -42,15 +42,15 @@ func (l *Log) SetLogLevel(level logLevel) {
 }
 
 func StdOutLogger(level logLevel) *Log {
-	return &Log {
-		logger: log.New(os.Stdout, "2cloud", log.LstdFlags | log.Llongfile),
+	return &Log{
+		logger:   log.New(os.Stdout, "2cloud", log.LstdFlags|log.Llongfile),
 		logLevel: level,
 	}
 }
 
 func NullLogger() *Log {
-	return &Log {
-		logger: log.New(ioutil.Discard, "2cloud", log.LstdFlags),
+	return &Log{
+		logger:   log.New(ioutil.Discard, "2cloud", log.LstdFlags),
 		logLevel: LogLevelError,
 	}
 }

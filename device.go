@@ -90,7 +90,7 @@ func (r *RequestBundle) releaseDeviceName(name string) error {
 }
 
 func (r *RequestBundle) UpdateDevice(device Device, name, client_type, gcm_key string) (Device, error) {
-	return Device {}, nil
+	return Device{}, nil
 }
 
 func (r *RequestBundle) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {

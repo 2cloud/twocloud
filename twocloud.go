@@ -25,7 +25,7 @@ type RequestBundle struct {
 	Auditor *Auditor
 	// Instrumentor
 	// Instrument
-	Request *http.Request
+	Request  *http.Request
 	AuthUser User
-	Device  Device
+	Device   Device
 }
