@@ -63,3 +63,7 @@ func (r *RequestBundle) BroadcastNotifications(notifications []Notification, fil
 	}
 	return []Notification{}, nil
 }
+
+func (r *RequestBundle) MarkNotificationRead(notification Notification) (Notification, error) {
+	return Notification{}, nil
+}
