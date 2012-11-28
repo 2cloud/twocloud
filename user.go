@@ -988,3 +988,7 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 	// stop instrumentation
 	return nil
 }
+
+func (r *RequestBundle) GetGraceSubscriptions(before, after ruid.RUID, count int) ([]Subscription, error) {
+	return []Subscription{}, nil
+}
