@@ -39,12 +39,6 @@ type Subscription struct {
 	AuthTokens    []string  `json:"auth_tokens,omitempty"`
 }
 
-func (subscription *Subscription) UpdateStatus() {
-	subscription.Active = subscription.Expires.After(time.Now())
-	grace := subscription.Expires.Add(time.Hour * 24 * 7)
-	subscription.InGracePeriod = !subscription.Active && grace.After(time.Now())
-}
-
 func GenerateTempCredentials() string {
 	cred := ""
 	acceptableChars := [50]string{"a", "b", "c", "d", "e", "f", "g", "h", "j", "k", "m", "n", "p", "q", "r", "s", "t", "w", "x", "y", "z", "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "M", "N", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "2", "3", "4", "5", "6", "7", "8", "9"}
@@ -157,7 +151,7 @@ func (r *RequestBundle) Authenticate(username, secret string) (User, error) {
 	// add repo calls to instrumentation
 	var subscriptionError error
 	if r.Config.UseSubscriptions {
-		user.Subscription.UpdateStatus()
+		r.UpdateSubscriptionStatus(user)
 		if !user.Subscription.Active && !user.IsAdmin {
 			if !user.Subscription.InGracePeriod {
 				subscriptionError = &SubscriptionExpiredError{Expired: user.Subscription.Expires}
@@ -238,7 +232,7 @@ func (r *RequestBundle) Register(username, email, given_name, family_name string
 		LastActive: time.Now(),
 		IsAdmin:    is_admin,
 		Subscription: &Subscription{
-			InGracePeriod: true,
+			Expires: time.Now().Add(r.Config.TrialPeriod * time.Hour * 24),
 		},
 	}
 	err = r.storeUser(user, false)
@@ -252,7 +246,7 @@ func (r *RequestBundle) Register(username, email, given_name, family_name string
 		r.Log.Error(err.Error())
 		return User{}, err
 	}
-	user.Subscription.UpdateStatus()
+	r.UpdateSubscriptionStatus(user)
 	// log the user registration in stats
 	// add repo calls to instrumentation
 	// send the confirmation email
@@ -441,7 +435,7 @@ func (r *RequestBundle) GetUser(id ruid.RUID) (User, error) {
 			ID:      hash["subscription_id"],
 		},
 	}
-	user.Subscription.UpdateStatus()
+	r.UpdateSubscriptionStatus(user)
 	// stop instrumentation
 	return user, nil
 }
@@ -886,6 +880,13 @@ func (r *RequestBundle) DeleteUser(user User) error {
 	return nil
 }
 
+func (r *RequestBundle) UpdateSubscriptionStatus(user User) {
+	user.Subscription.Active = user.Subscription.Expires.After(time.Now())
+	grace := user.Subscription.Expires.Add(time.Hour * 24 * r.Config.GracePeriod)
+	user.Subscription.InGracePeriod = !user.Subscription.Active && grace.After(time.Now())
+}
+
+
 func (r *RequestBundle) UpdateSubscription(user User, expires time.Time) error {
 	// start instrumentation
 	user.Subscription.Expires = expires
@@ -894,7 +895,7 @@ func (r *RequestBundle) UpdateSubscription(user User, expires time.Time) error {
 	if err != nil {
 		return err
 	}
-	user.Subscription.UpdateStatus()
+	r.UpdateSubscriptionStatus(user)
 	// send the push notification
 	// stop instrumentation
 	return nil
@@ -925,7 +926,6 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 		return reply.Err
 	}
 	r.AuditMap("users:"+userID.String(), from, changes)
-	subscription.UpdateStatus()
 	// stop instrumentation
 	return nil
 }
