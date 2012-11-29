@@ -36,6 +36,7 @@ type Subscription struct {
 	Active        bool      `json:"active,omitempty"`
 	InGracePeriod bool      `json:"in_grace_period,omitempty"`
 	Expires       time.Time `json:"expires,omitempty"`
+	AuthTokens    []string  `json:"auth_tokens,omitempty"`
 }
 
 func GenerateTempCredentials() string {
