@@ -584,6 +584,7 @@ func (r *RequestBundle) GetUsersByActivity(count int, active_after, active_befor
 				ID:      hash["subscription_id"],
 			},
 		}
+		r.UpdateSubscriptionStatus(user)
 		users = append(users, user)
 	}
 	// stop instrumentation
@@ -701,6 +702,7 @@ func (r *RequestBundle) GetUsersByJoinDate(count int, after, before time.Time) (
 				ID:      hash["subscription_id"],
 			},
 		}
+		r.UpdateSubscriptionStatus(user)
 		users = append(users, user)
 	}
 	// stop instrumentation
@@ -885,6 +887,68 @@ func (r *RequestBundle) UpdateSubscriptionStatus(user User) {
 	user.Subscription.Active = user.Subscription.Expires.After(time.Now())
 	grace := user.Subscription.Expires.Add(time.Hour * 24 * r.Config.GracePeriod)
 	user.Subscription.InGracePeriod = !user.Subscription.Active && grace.After(time.Now())
+}
+
+func (r *RequestBundle) CreateSubscription(user User, auth []string) error {
+	customerID, err := r.subscriptionIDFromAuthTokens(auth)
+	if err != nil {
+		r.Log.Error(err.Error())
+		return err
+	}
+	user.Subscription.ID = customerID
+	err = r.storeSubscription(user.ID, user.Subscription)
+	if err != nil {
+		r.Log.Error(err.Error())
+		return err
+	}
+	return nil
+}
+
+func (r *RequestBundle) subscriptionIDFromAuthTokens(auth []string) (string, error) {
+	if len(auth) < 1 {
+		// TODO: throw an error
+		return "", nil
+	}
+	tokenparts := strings.SplitN(auth[0], ":", 2)
+	switch tokenparts[0] {
+	case "stripe":
+		// TODO: create stripe customer
+		return "stripe customer id", nil
+	}
+	// TODO: throw an invalid subscription provider error
+	return "", nil
+}
+
+func (r *RequestBundle) UpdateSubscriptionPaymentSource(user User, auth []string) error {
+	// start instrumentation
+	if len(auth) < 1 {
+		// TODO: throw an error
+		return nil
+	}
+	idparts := strings.SplitN(user.Subscription.ID, ":", 2)
+	tokenparts := strings.SplitN(auth[0], ":", 2)
+	if idparts[0] != tokenparts[0] {
+		// TODO: cancel subscription
+		customerID, err := r.subscriptionIDFromAuthTokens(auth)
+		if err != nil {
+			r.Log.Error(err.Error())
+			return err
+		}
+		user.Subscription.ID = customerID
+		err = r.storeSubscription(user.ID, user.Subscription)
+		if err != nil {
+			r.Log.Error(err.Error())
+			return err
+		}
+		return nil
+	}
+	switch tokenparts[0] {
+	case "stripe":
+		// TODO: update customer payment source
+		return nil
+	}
+	// TODO: throw an invalid subscription provider error
+	return nil
 }
 
 func (r *RequestBundle) UpdateSubscription(user User, expires time.Time) error {
