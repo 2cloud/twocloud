@@ -32,7 +32,7 @@ type User struct {
 }
 
 type Subscription struct {
-	ID            string    `json:"id,omitempty"`
+	ID            ruid.RUID `json:"id,omitempty"`
 	Active        bool      `json:"active,omitempty"`
 	InGracePeriod bool      `json:"in_grace_period,omitempty"`
 	Expires       time.Time `json:"expires,omitempty"`
@@ -350,7 +350,7 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 		"family_name":          user.Name.Family,
 		"last_active":          user.LastActive.Format(time.RFC3339),
 		"is_admin":             user.IsAdmin,
-		"subscription_id":      user.Subscription.ID,
+		"subscription_id":      user.Subscription.ID.String(),
 		"subscription_expires": user.Subscription.Expires.Format(time.RFC3339),
 		"subscription_active":  user.Subscription.Active,
 		"subscription_igp":     user.Subscription.InGracePeriod,
@@ -417,6 +417,11 @@ func (r *RequestBundle) GetUser(id ruid.RUID) (User, error) {
 		r.Log.Error(err.Error())
 		return User{}, err
 	}
+	subscription_id, err := ruid.RUIDFromString(hash["subscription_id"])
+	if err != nil {
+		r.Log.Error(err.Error())
+		return User{}, err
+	}
 	user := User{
 		ID:                id,
 		Username:          hash["username"],
@@ -433,7 +438,7 @@ func (r *RequestBundle) GetUser(id ruid.RUID) (User, error) {
 		IsAdmin:    hash["is_admin"] == "1",
 		Subscription: &Subscription{
 			Expires:       subscription_expires,
-			ID:            hash["subscription_id"],
+			ID:            subscription_id,
 			Active:        hash["subscription_active"] == "1",
 			InGracePeriod: hash["subscription_igp"] == "1",
 		},
@@ -566,6 +571,11 @@ func (r *RequestBundle) GetUsersByActivity(count int, active_after, active_befor
 			r.Log.Error(err.Error())
 			continue
 		}
+		subscription_id, err := ruid.RUIDFromString(hash["subscription_id"])
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
 		user := User{
 			ID:                id,
 			Username:          hash["username"],
@@ -582,7 +592,7 @@ func (r *RequestBundle) GetUsersByActivity(count int, active_after, active_befor
 			IsAdmin:    hash["is_admin"] == "1",
 			Subscription: &Subscription{
 				Expires:       subscription_expires,
-				ID:            hash["subscription_id"],
+				ID:            subscription_id,
 				Active:        hash["subscription_active"] == "1",
 				InGracePeriod: hash["subscription_igp"] == "1",
 			},
@@ -680,6 +690,11 @@ func (r *RequestBundle) GetUsersByJoinDate(count int, after, before time.Time) (
 			r.Log.Error(err.Error())
 			return []User{}, err
 		}
+		subscription_id, err := ruid.RUIDFromString(hash["subscription_id"])
+		if err != nil {
+			r.Log.Error(err.Error())
+			return []User{}, err
+		}
 		id, err := ruid.RUIDFromString(list[pos])
 		if err != nil {
 			r.Log.Error(err.Error())
@@ -701,7 +716,7 @@ func (r *RequestBundle) GetUsersByJoinDate(count int, after, before time.Time) (
 			IsAdmin:    hash["is_admin"] == "1",
 			Subscription: &Subscription{
 				Expires:       subscription_expires,
-				ID:            hash["subscription_id"],
+				ID:            subscription_id,
 				Active:        hash["subscription_active"] == "1",
 				InGracePeriod: hash["subscription_igp"] == "1",
 			},
@@ -975,8 +990,8 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 		from["subscription_expires"] = old_sub.Expires.Format(time.RFC3339)
 	}
 	if old_sub.ID != subscription.ID {
-		changes["subscription_id"] = subscription.ID
-		from["subscription_id"] = old_sub.ID
+		changes["subscription_id"] = subscription.ID.String()
+		from["subscription_id"] = old_sub.ID.String()
 	}
 	reply := r.Repo.client.Hmset("users:"+userID.String(), changes)
 	// add repo call to instrumentation
@@ -989,6 +1004,10 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 	return nil
 }
 
-func (r *RequestBundle) GetGraceSubscriptions(before, after ruid.RUID, count int) ([]Subscription, error) {
+func (r *RequestBundle) GetGraceSubscriptions(after, before ruid.RUID, count int) ([]Subscription, error) {
 	return []Subscription{}, nil
+}
+
+func (r *RequestBundle) GetSubscription(id ruid.RUID) (Subscription, error) {
+	return Subscription{}, nil
 }
