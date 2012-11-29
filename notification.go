@@ -7,13 +7,15 @@ import (
 )
 
 type Notification struct {
-	ID       ruid.RUID `json:"id,omitempty"`
-	Nature   string    `json:"nature,omitempty"`
-	Body     string    `json:"body,omitempty"`
-	Unread   bool      `json:"unread,omitempty"`
-	ReadBy   ruid.RUID `json:"read_by,omitempty"`
-	TimeRead time.Time `json:"time_read,omitempty"`
-	Sent     time.Time `json:"sent,omitempty"`
+	ID              ruid.RUID `json:"id,omitempty"`
+	Nature          string    `json:"nature,omitempty"`
+	Body            string    `json:"body,omitempty"`
+	Unread          bool      `json:"unread,omitempty"`
+	ReadBy          ruid.RUID `json:"read_by,omitempty"`
+	TimeRead        time.Time `json:"time_read,omitempty"`
+	Sent            time.Time `json:"sent,omitempty"`
+	Destination     ruid.RUID `json:"owner,omitempty"`
+	DestinationType string    `json:"owner_type,omitempty"`
 }
 
 type BroadcastFilter struct {
@@ -66,4 +68,8 @@ func (r *RequestBundle) BroadcastNotifications(notifications []Notification, fil
 
 func (r *RequestBundle) MarkNotificationRead(notification Notification) (Notification, error) {
 	return Notification{}, nil
+}
+
+func (r *RequestBundle) DeleteNotification(notification Notification) error {
+	return nil
 }
