@@ -373,6 +373,7 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		mc.Hmset("users:"+user.ID.String(), changes)
 		mc.Zadd("users_by_join_date", user.Joined.Unix(), user.ID.String())
+		mc.Zadd("users_by_subscription_expiration", user.Subscription.Expires.Unix(), user.ID.String())
 	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
@@ -886,7 +887,6 @@ func (r *RequestBundle) UpdateSubscriptionStatus(user User) {
 	user.Subscription.InGracePeriod = !user.Subscription.Active && grace.After(time.Now())
 }
 
-
 func (r *RequestBundle) UpdateSubscription(user User, expires time.Time) error {
 	// start instrumentation
 	user.Subscription.Expires = expires
@@ -919,7 +919,10 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 		changes["subscription_id"] = subscription.ID
 		from["subscription_id"] = old_sub.ID
 	}
-	reply := r.Repo.client.Hmset("users:"+userID.String(), changes)
+	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
+		mc.Hmset("users:"+userID.String(), changes)
+		mc.Zadd("users_by_subscription_expiration", subscription.Expires.Unix(), userID.String())
+	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
