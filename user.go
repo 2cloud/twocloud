@@ -39,6 +39,12 @@ type Subscription struct {
 	AuthTokens    []string  `json:"auth_tokens,omitempty"`
 }
 
+func (subscription *Subscription) UpdateStatus() {
+	subscription.Active = subscription.Expires.After(time.Now())
+	grace := subscription.Expires.Add(time.Hour * 24 * 7)
+	subscription.InGracePeriod = !subscription.Active && grace.After(time.Now())
+}
+
 func GenerateTempCredentials() string {
 	cred := ""
 	acceptableChars := [50]string{"a", "b", "c", "d", "e", "f", "g", "h", "j", "k", "m", "n", "p", "q", "r", "s", "t", "w", "x", "y", "z", "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "M", "N", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "2", "3", "4", "5", "6", "7", "8", "9"}
@@ -151,6 +157,7 @@ func (r *RequestBundle) Authenticate(username, secret string) (User, error) {
 	// add repo calls to instrumentation
 	var subscriptionError error
 	if r.Config.UseSubscriptions {
+		user.Subscription.UpdateStatus()
 		if !user.Subscription.Active && !user.IsAdmin {
 			if !user.Subscription.InGracePeriod {
 				subscriptionError = &SubscriptionExpiredError{Expired: user.Subscription.Expires}
@@ -245,6 +252,7 @@ func (r *RequestBundle) Register(username, email, given_name, family_name string
 		r.Log.Error(err.Error())
 		return User{}, err
 	}
+	user.Subscription.UpdateStatus()
 	// log the user registration in stats
 	// add repo calls to instrumentation
 	// send the confirmation email
@@ -353,8 +361,6 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 		"is_admin":             user.IsAdmin,
 		"subscription_id":      user.Subscription.ID,
 		"subscription_expires": user.Subscription.Expires.Format(time.RFC3339),
-		"subscription_active":  user.Subscription.Active,
-		"subscription_igp":     user.Subscription.InGracePeriod,
 	}
 	from := map[string]interface{}{
 		"username":             "",
@@ -369,8 +375,6 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 		"is_admin":             "",
 		"subscription_id":      "",
 		"subscription_expires": "",
-		"subscription_active":  "",
-		"subscription_igp":     "",
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		mc.Hmset("users:"+user.ID.String(), changes)
@@ -433,12 +437,11 @@ func (r *RequestBundle) GetUser(id ruid.RUID) (User, error) {
 		LastActive: last_active,
 		IsAdmin:    hash["is_admin"] == "1",
 		Subscription: &Subscription{
-			Expires:       subscription_expires,
-			ID:            hash["subscription_id"],
-			Active:        hash["subscription_active"] == "1",
-			InGracePeriod: hash["subscription_igp"] == "1",
+			Expires: subscription_expires,
+			ID:      hash["subscription_id"],
 		},
 	}
+	user.Subscription.UpdateStatus()
 	// stop instrumentation
 	return user, nil
 }
@@ -582,10 +585,8 @@ func (r *RequestBundle) GetUsersByActivity(count int, active_after, active_befor
 			LastActive: last_active,
 			IsAdmin:    hash["is_admin"] == "1",
 			Subscription: &Subscription{
-				Expires:       subscription_expires,
-				ID:            hash["subscription_id"],
-				Active:        hash["subscription_active"] == "1",
-				InGracePeriod: hash["subscription_igp"] == "1",
+				Expires: subscription_expires,
+				ID:      hash["subscription_id"],
 			},
 		}
 		users = append(users, user)
@@ -701,10 +702,8 @@ func (r *RequestBundle) GetUsersByJoinDate(count int, after, before time.Time) (
 			LastActive: last_active,
 			IsAdmin:    hash["is_admin"] == "1",
 			Subscription: &Subscription{
-				Expires:       subscription_expires,
-				ID:            hash["subscription_id"],
-				Active:        hash["subscription_active"] == "1",
-				InGracePeriod: hash["subscription_igp"] == "1",
+				Expires: subscription_expires,
+				ID:      hash["subscription_id"],
 			},
 		}
 		users = append(users, user)
@@ -890,64 +889,12 @@ func (r *RequestBundle) DeleteUser(user User) error {
 func (r *RequestBundle) UpdateSubscription(user User, expires time.Time) error {
 	// start instrumentation
 	user.Subscription.Expires = expires
-	active := expires.After(time.Now())
-	grace := expires.Add(time.Hour * 24 * 7)
-	igp := !active && grace.After(time.Now())
-	if !user.Subscription.InGracePeriod && igp {
-		user.Subscription.InGracePeriod = true
-	} else if user.Subscription.InGracePeriod && !igp {
-		user.Subscription.InGracePeriod = false
-	}
-	if !user.Subscription.Active && active {
-		user.Subscription.Active = true
-	} else if !active && user.Subscription.Active {
-		user.Subscription.Active = false
-	}
 	err := r.storeSubscription(user.ID, user.Subscription)
 	// add repo request to instrumentation
 	if err != nil {
 		return err
 	}
-	// send the push notification
-	// stop instrumentation
-	return nil
-}
-
-func (r *RequestBundle) UpdateSubscriptionStatus(user User) error {
-	// start instrumentation
-	if user.Subscription.Expires.After(time.Now()) {
-		if !user.Subscription.Active {
-			user.Subscription.Active = true
-		}
-		if user.Subscription.InGracePeriod {
-			user.Subscription.InGracePeriod = false
-		}
-		err := r.storeSubscription(user.ID, user.Subscription)
-		// add the repo request to instrumentation
-		if err != nil {
-			return err
-		}
-		// stop instrumentation
-		return nil
-	}
-	grace := user.Subscription.Expires.Add(time.Hour * 24 * 7)
-	if user.Subscription.Active {
-		user.Subscription.Active = false
-	}
-	if !user.Subscription.InGracePeriod {
-		if grace.After(time.Now()) {
-			user.Subscription.InGracePeriod = true
-		}
-	} else {
-		if time.Now().After(grace) {
-			user.Subscription.InGracePeriod = false
-		}
-	}
-	err := r.storeSubscription(user.ID, user.Subscription)
-	// add the repo request to instrumentation
-	if err != nil {
-		return err
-	}
+	user.Subscription.UpdateStatus()
 	// send the push notification
 	// stop instrumentation
 	return nil
@@ -963,14 +910,6 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 		return err
 	}
 	old_sub := old_user.Subscription
-	if old_sub.Active != subscription.Active {
-		changes["subscription_active"] = subscription.Active
-		from["subscription_active"] = old_sub.Active
-	}
-	if old_sub.InGracePeriod != subscription.InGracePeriod {
-		changes["subscription_igp"] = subscription.InGracePeriod
-		from["subscription_igp"] = old_sub.InGracePeriod
-	}
 	if old_sub.Expires != subscription.Expires {
 		changes["subscription_expires"] = subscription.Expires.Format(time.RFC3339)
 		from["subscription_expires"] = old_sub.Expires.Format(time.RFC3339)
@@ -986,6 +925,7 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 		return reply.Err
 	}
 	r.AuditMap("users:"+userID.String(), from, changes)
+	subscription.UpdateStatus()
 	// stop instrumentation
 	return nil
 }
