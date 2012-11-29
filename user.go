@@ -965,6 +965,10 @@ func (r *RequestBundle) UpdateSubscription(user User, expires time.Time) error {
 	return nil
 }
 
+func (r *RequestBundle) CancelSubscription(user User) error {
+	return nil
+}
+
 func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscription) error {
 	// start instrumentation
 	changes := map[string]interface{}{}
