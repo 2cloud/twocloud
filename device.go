@@ -1,6 +1,7 @@
 package twocloud
 
 import (
+	"errors"
 	"github.com/fzzbt/radix/redis"
 	"secondbit.org/ruid"
 	"strings"
@@ -28,6 +29,9 @@ type Pusher struct {
 	LastUsed time.Time `json:"last_used,omitempty"`
 }
 
+var InvalidClientType = errors.New("Invalid client type.")
+var DeviceNotFoundError = errors.New("Device not found.")
+
 func (d *Device) ValidClientType() bool {
 	return d.ClientType == "android_phone" || d.ClientType == "android_tablet" || d.ClientType == "website" || d.ClientType == "chrome_extension"
 }
@@ -37,54 +41,182 @@ func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 }
 
 func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
+	// start instrumentation
 	if r.Device.ID == id {
 		return r.Device, nil
 	}
-	return Device{}, nil
+	reply := r.Repo.client.Hgetall("devices:" + id.String())
+	// add repo call to instrumentation
+	if reply.Err != nil {
+		r.Log.Error(reply.Err.Error())
+		return Device{}, reply.Err
+	}
+	if reply.Type == redis.ReplyNil {
+		return Device{}, DeviceNotFoundError
+	}
+	hash, err := reply.Hash()
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Device{}, err
+	}
+	last_seen, err := time.Parse(time.RFC3339, hash["last_seen"])
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Device{}, err
+	}
+	created, err := time.Parse(time.RFC3339, hash["created"])
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Device{}, err
+	}
+	user_id, err := ruid.RUIDFromString(hash["user_id"])
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Device{}, err
+	}
+	device := Device{
+		ID:         id,
+		Name:       hash["name"],
+		LastSeen:   last_seen,
+		LastIP:     hash["last_ip"],
+		ClientType: hash["client_type"],
+		UserID:     user_id,
+		Created:    created,
+		Pushers:    &Pushers{},
+	}
+	if _, exists := hash["gcm_key"]; exists {
+		device.Pushers.GCM = &Pusher{
+			Key: hash["gcm_key"],
+		}
+		if _, exists = hash["gcm_last_used"]; exists {
+			device.Pushers.GCM.LastUsed, err = time.Parse(time.RFC3339, hash["gcm_last_used"])
+			if err != nil {
+				r.Log.Error(err.Error())
+				return Device{}, err
+			}
+		}
+	}
+	if _, exists := hash["websockets_last_used"]; exists {
+		last_used, err := time.Parse(time.RFC3339, hash["websockets_last_used"])
+		if err != nil {
+			r.Log.Error(err.Error())
+			return Device{}, err
+		}
+		device.Pushers.WebSockets = &Pusher{
+			LastUsed: last_used,
+		}
+	}
+	return device, nil
 }
 
 func (r *RequestBundle) AddDevice(name, client_type, ip, gcm_key string, user User) (Device, error) {
-	return Device{}, nil
-}
-
-func (r *RequestBundle) reserveDeviceName(name string, id ruid.RUID) (bool, error) {
-	// start instrumentation
-	reply := r.Repo.client.Hsetnx("device_names_to_ids", strings.ToLower(name), id.String())
-	// report repo call to instrumentation
-	if reply.Err != nil {
-		r.Log.Error(reply.Err.Error())
-		return false, reply.Err
-	}
-	r.Audit("device_names_to_ids", strings.ToLower(name), "", id.String())
-	// report repo calls to instrumentation
-	// stop instrumentation
-	return reply.Bool()
-}
-
-func (r *RequestBundle) releaseDeviceName(name string) error {
-	// start instrumentation
-	reply := r.Repo.client.Hget("device_names_to_ids", strings.ToLower(name))
-	// report the repo call to instrumentation
-	if reply.Err != nil {
-		r.Log.Error(reply.Err.Error())
-		return reply.Err
-	}
-	if reply.Type == redis.ReplyNil {
-		return nil
-	}
-	was, err := reply.Str()
+	id, err := gen.Generate([]byte(user.ID.String()))
 	if err != nil {
 		r.Log.Error(err.Error())
-		return err
+		return Device{}, err
 	}
-	reply = r.Repo.client.Hdel("device_names_to_ids", strings.ToLower(name))
-	// report the repo call to instrumentation
-	if reply.Err != nil {
+	name = strings.TrimSpace(name)
+	client_type = strings.TrimSpace(client_type)
+	gcm_key = strings.TrimSpace(gcm_key)
+	device := Device{
+		ID:         id,
+		Name:       name,
+		LastSeen:   time.Now(),
+		LastIP:     ip,
+		ClientType: client_type,
+		UserID:     user.ID,
+		Created:    time.Now(),
+		Pushers: &Pushers{
+			GCM: &Pusher{
+				Key: gcm_key,
+			},
+			WebSockets: &Pusher{},
+		},
+	}
+	if !device.ValidClientType() {
+		return Device{}, InvalidClientType
+	}
+	err = r.storeDevice(device, false)
+	// add repo calls to instrumentation
+	if err != nil {
 		r.Log.Error(err.Error())
+		return Device{}, err
+	}
+	// log the device creation in stats
+	// add repo calls to instrumentation
+	// stop instrumentation
+	return device, nil
+}
+
+func (r *RequestBundle) storeDevice(device Device, update bool) error {
+	// start instrumentation
+	if update {
+		changes := map[string]interface{}{}
+		from := map[string]interface{}{}
+		old_device := r.Device
+		var err error
+		if r.Device.ID != device.ID {
+			old_device, err = r.GetDevice(device.ID)
+			// add repo call to instrumentation
+			if err != nil {
+				return err
+			}
+		}
+		if old_device.Name != device.Name {
+			changes["name"] = device.Name
+			from["name"] = old_device.Name
+		}
+		if old_device.ClientType != device.ClientType {
+			changes["client_type"] = device.ClientType
+			from["client_type"] = old_device.ClientType
+		}
+		if old_device.Pushers != nil && old_device.Pushers.GCM != nil && device.Pushers != nil && device.Pushers.GCM != nil && old_device.Pushers.GCM.Key != device.Pushers.GCM.Key {
+			changes["gcm_key"] = device.Pushers.GCM.Key
+			from["gcm_key"] = old_device.Pushers.GCM.Key
+		}
+		reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
+			mc.Hmset("devices:"+device.ID.String(), changes)
+		})
+		// add repo call to instrumentation
+		if reply.Err != nil {
+			r.Log.Error(reply.Err.Error())
+			return reply.Err
+		}
+		r.AuditMap("devices:"+device.ID.String(), from, changes)
+		// add repo call to instrumentation
+		return nil
+	}
+	changes := map[string]interface{}{
+		"name":        device.Name,
+		"last_seen":   time.Now().Format(time.RFC3339),
+		"last_ip":     device.LastIP,
+		"client_type": device.ClientType,
+		"created":     time.Now().Format(time.RFC3339),
+		"user_id":     device.UserID.String(),
+	}
+	from := map[string]interface{}{
+		"name":        "",
+		"last_seen":   "",
+		"last_ip":     "",
+		"client_type": "",
+		"created":     "",
+		"user_id":     "",
+	}
+	if device.Pushers != nil && device.Pushers.GCM != nil {
+		changes["gcm_key"] = device.Pushers.GCM.Key
+		from["gcm_key"] = ""
+	}
+	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
+		mc.Hmset("devices:"+device.ID.String(), changes)
+		mc.Zadd("users:"+device.UserID.String()+":devices", device.LastSeen.Unix(), device.ID.String())
+	})
+	// add repo call to instrumentation
+	if reply.Err != nil {
+		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.Audit("device_names_to_ids", strings.ToLower(name), was, "")
-	// report repo calls to instrumentation
+	r.AuditMap("devices:"+device.ID.String(), from, changes)
+	// add repo call to instrumentation
 	// stop instrumentation
 	return nil
 }
@@ -95,6 +227,23 @@ func (r *RequestBundle) UpdateDevice(device Device, name, client_type, gcm_key s
 
 func (r *RequestBundle) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {
 	return Device{}, nil
+}
+
+func (r *RequestBundle) UpdateDeviceGCMLastUsed(device Device) error {
+	return r.updateDevicePusherLastUsed(device, "gcm")
+}
+
+func (r *RequestBundle) UpdateDeviceWebSocketLastUsed(device Device) error {
+	return r.updateDevicePusherLastUsed(device, "websocket")
+}
+
+func (r *RequestBundle) updateDevicePusherLastUsed(device Device, pusher string) error {
+	if pusher == "gcm" {
+		// TODO: update gcm last used
+	} else if pusher == "websocket" {
+		// TODO: update websocket last used
+	}
+	return nil
 }
 
 func (r *RequestBundle) DeleteDevice(device Device) error {
