@@ -82,7 +82,7 @@ type SubscriptionExpiredError struct {
 func (e *SubscriptionExpiredError) Error() string {
 	specifics := ""
 	if !e.Expired.IsZero() {
-		specifics = " It expired on " + e.Expired.Format("%B %d, %Y") + "."
+		specifics = " It expired on " + e.Expired.Format("Jan 02, 2006") + "."
 	}
 	return "Your subscription has expired." + specifics
 }
@@ -94,7 +94,7 @@ type SubscriptionExpiredWarning struct {
 func (e *SubscriptionExpiredWarning) Error() string {
 	specifics := ""
 	if !e.Expired.IsZero() {
-		specifics = " It expired on " + e.Expired.Format("%B %d, %Y") + ". You have until " + e.Expired.Format("%B %d, %Y") + " to renew it, or lose access to your account."
+		specifics = " It expired on " + e.Expired.Format("Jan 02, 2006") + "."
 	}
 	return "Warning! Your subscription has expired." + specifics
 }
