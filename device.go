@@ -37,7 +37,90 @@ func (d *Device) ValidClientType() bool {
 }
 
 func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
-	return []Device{}, nil
+	// start instrumentation
+	reply := r.Repo.client.Zrevrange("users:"+user.ID.String()+":devices", 0, -1)
+	// add repo call to instrumentation
+	if reply.Err != nil {
+		r.Log.Error(reply.Err.Error())
+		return []Device{}, reply.Err
+	}
+	if reply.Type == redis.ReplyNil {
+		return []Device{}, nil
+	}
+	ids, err := reply.List()
+	if err != nil {
+		return []Device{}, err
+	}
+	reply = r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
+		for _, id := range ids {
+			mc.Hgetall("devices:" + id)
+		}
+	})
+	// add repo calls to instrumentation
+	if reply.Err != nil {
+		return []Device{}, reply.Err
+	}
+	devices := []Device{}
+	for pos, rep := range reply.Elems {
+		if rep.Type == redis.ReplyNil {
+			continue
+		}
+		hash, err := rep.Hash()
+		if err != nil {
+			return devices, err
+		}
+		last_seen, err := time.Parse(time.RFC3339, hash["last_seen"])
+		if err != nil {
+			return devices, err
+		}
+		created, err := time.Parse(time.RFC3339, hash["created"])
+		if err != nil {
+			return devices, err
+		}
+		user_id, err := ruid.RUIDFromString(hash["user_id"])
+		if err != nil {
+			return devices, err
+		}
+		id, err := ruid.RUIDFromString(ids[pos])
+		if err != nil {
+			return devices, err
+		}
+		device := Device{
+			ID:         id,
+			Name:       hash["name"],
+			LastSeen:   last_seen,
+			LastIP:     hash["last_ip"],
+			ClientType: hash["client_type"],
+			UserID:     user_id,
+			Created:    created,
+			Pushers:    &Pushers{},
+		}
+		if _, exists := hash["gcm_key"]; exists {
+			device.Pushers.GCM = &Pusher{
+				Key: hash["gcm_key"],
+			}
+			if _, exists = hash["gcm_last_used"]; exists {
+				device.Pushers.GCM.LastUsed, err = time.Parse(time.RFC3339, hash["gcm_last_used"])
+				if err != nil {
+					r.Log.Error(err.Error())
+					return devices, err
+				}
+			}
+		}
+		if _, exists := hash["websockets_last_used"]; exists {
+			last_used, err := time.Parse(time.RFC3339, hash["websockets_last_used"])
+			if err != nil {
+				r.Log.Error(err.Error())
+				return devices, err
+			}
+			device.Pushers.WebSockets = &Pusher{
+				LastUsed: last_used,
+			}
+		}
+		devices = append(devices, device)
+	}
+	// stop instrumentation
+	return devices, nil
 }
 
 func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
@@ -106,6 +189,7 @@ func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
 			LastUsed: last_used,
 		}
 	}
+	// stop instrumentation
 	return device, nil
 }
 
