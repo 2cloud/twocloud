@@ -307,7 +307,45 @@ func (r *RequestBundle) storeDevice(device Device, update bool) error {
 }
 
 func (r *RequestBundle) UpdateDevice(device Device, name, client_type, gcm_key string) (Device, error) {
-	return Device{}, nil
+	// start instrumentation
+	name = strings.TrimSpace(name)
+	if name != "" {
+		device.Name = name
+	}
+	client_type = strings.TrimSpace(client_type)
+	if client_type != "" {
+		device.ClientType = client_type
+	}
+	gcm_key = strings.TrimSpace(gcm_key)
+	if gcm_key != "" {
+		if device.Pushers == nil {
+			device.Pushers = &Pushers{
+				GCM: &Pusher{
+					Key: gcm_key,
+				},
+			}
+		} else if device.Pushers.GCM == nil {
+			device.Pushers.GCM = &Pusher{
+				Key: gcm_key,
+			}
+		} else {
+			device.Pushers.GCM.Key = gcm_key
+		}
+	}
+	if !device.ValidClientType() {
+		r.Log.Debug("Invalid client type: %s", device.ClientType)
+		return Device{}, InvalidClientType
+	}
+	err := r.storeDevice(device, false)
+	// add repo calls to instrumentation
+	if err != nil {
+		r.Log.Error(err.Error())
+		return Device{}, err
+	}
+	// log the device creation in stats
+	// add repo calls to instrumentation
+	// stop instrumentation
+	return device, nil
 }
 
 func (r *RequestBundle) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {
