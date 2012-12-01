@@ -310,7 +310,26 @@ func (r *RequestBundle) UpdateDevice(device Device, name, client_type, gcm_key s
 }
 
 func (r *RequestBundle) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {
-	return Device{}, nil
+	now := time.Now()
+	reply := r.Repo.client.Hmset("devices:"+device.ID.String(), "last_seen", now.Format(time.RFC3339), "last_ip", ip)
+	// add repo call to instrumentation
+	if reply.Err != nil {
+		return Device{}, reply.Err
+	}
+	from := map[string]interface{}{
+		"last_seen": device.LastSeen.Format(time.RFC3339),
+		"last_ip":   device.LastIP,
+	}
+	device.LastSeen = now
+	device.LastIP = ip
+	to := map[string]interface{}{
+		"last_seen": now.Format(time.RFC3339),
+		"last_ip":   ip,
+	}
+	r.AuditMap("devices:"+device.ID.String(), from, to)
+	// add repo call to instrumentation
+	// stop instrumentation
+	return device, nil
 }
 
 func (r *RequestBundle) UpdateDeviceGCMLastUsed(device Device) error {
