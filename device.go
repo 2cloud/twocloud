@@ -30,6 +30,7 @@ type Pusher struct {
 }
 
 var InvalidClientType = errors.New("Invalid client type.")
+var InvalidPusherType = errors.New("Invalid pusher type.")
 var DeviceNotFoundError = errors.New("Device not found.")
 
 func (d *Device) ValidClientType() bool {
@@ -341,11 +342,30 @@ func (r *RequestBundle) UpdateDeviceWebSocketLastUsed(device Device) error {
 }
 
 func (r *RequestBundle) updateDevicePusherLastUsed(device Device, pusher string) error {
-	if pusher == "gcm" {
-		// TODO: update gcm last used
-	} else if pusher == "websocket" {
-		// TODO: update websocket last used
+	// start instrumentation
+	if pusher != "gcm" && pusher != "websockets" {
+		return InvalidPusherType
 	}
+	var was time.Time
+	now := time.Now()
+	if pusher == "gcm" {
+		if device.Pushers != nil && device.Pushers.GCM != nil {
+			was = device.Pushers.GCM.LastUsed
+		}
+	} else if pusher == "websockets" {
+		if device.Pushers != nil && device.Pushers.WebSockets != nil {
+			was = device.Pushers.WebSockets.LastUsed
+		}
+	}
+	reply := r.Repo.client.Hset("devices:"+device.ID.String(), pusher+"_last_used", now.Format(time.RFC3339))
+	// add repo call to instrumentation
+	if reply.Err != nil {
+		r.Log.Error(reply.Err.Error())
+		return reply.Err
+	}
+	r.Audit("devices:"+device.ID.String(), pusher+"_last_used", was.Format(time.RFC3339), now.Format(time.RFC3339))
+	// add repo call to instrumentation
+	// stop instrumentation
 	return nil
 }
 
