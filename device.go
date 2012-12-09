@@ -33,8 +33,15 @@ var InvalidClientType = errors.New("Invalid client type.")
 var InvalidPusherType = errors.New("Invalid pusher type.")
 var DeviceNotFoundError = errors.New("Device not found.")
 
+var validClientTypes = []string{"android_phone", "android_tablet", "chromebook", "macbook_chrome", "windows_chrome"}
+
 func (d *Device) ValidClientType() bool {
-	return d.ClientType == "android_phone" || d.ClientType == "android_tablet" || d.ClientType == "website" || d.ClientType == "chrome_extension"
+	for _, clientType := range validClientTypes {
+		if d.ClientType == clientType {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {

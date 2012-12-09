@@ -28,9 +28,12 @@ func (b *BroadcastFilter) IsValid() bool {
 		return false
 	}
 	for _, t := range b.ClientType {
-		if t != "android_phone" && t != "android_tablet" && t != "website" && t != "chrome_extension" {
-			return false
+		for _, clientType := range validClientTypes {
+			if t == clientType {
+				continue
+			}
 		}
+		return false
 	}
 	return true
 }
