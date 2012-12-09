@@ -137,6 +137,11 @@ func (r *RequestBundle) Authenticate(username, secret string) (User, error) {
 		return User{}, err
 	}
 	// add repo calls to instrumentation
+	err = r.updateAuthErrorFlag(user.Secret != secret)
+	// add repo call to instrumentation
+	if err != nil {
+		return User{}, err
+	}
 	if user.Secret != secret {
 		r.Log.Warn("Invalid auth attempt for %s's account.", username)
 		// report invalid auth attempt to stats

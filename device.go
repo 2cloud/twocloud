@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/fzzbt/radix/redis"
 	"secondbit.org/ruid"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,6 +18,7 @@ type Device struct {
 	Created    time.Time `json:"created,omitempty"`
 	Pushers    *Pushers  `json:"pushers,omitempty"`
 	UserID     ruid.RUID `json:"user_id,omitempty"`
+	AuthError  bool      `json:"auth_error,omitempty"`
 }
 
 type Pushers struct {
@@ -93,6 +95,10 @@ func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 		if err != nil {
 			return devices, err
 		}
+		autherr := false
+		if hash["auth_error"] == "1" {
+			autherr = true
+		}
 		device := Device{
 			ID:         id,
 			Name:       hash["name"],
@@ -102,6 +108,7 @@ func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 			UserID:     user_id,
 			Created:    created,
 			Pushers:    &Pushers{},
+			AuthError:  autherr,
 		}
 		if _, exists := hash["gcm_key"]; exists {
 			device.Pushers.GCM = &Pusher{
@@ -165,6 +172,10 @@ func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
 		r.Log.Error(err.Error())
 		return Device{}, err
 	}
+	auth_err := false
+	if hash["auth_error"] == "1" {
+		auth_err = true
+	}
 	device := Device{
 		ID:         id,
 		Name:       hash["name"],
@@ -174,6 +185,7 @@ func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
 		UserID:     user_id,
 		Created:    created,
 		Pushers:    &Pushers{},
+		AuthError:  auth_err,
 	}
 	if _, exists := hash["gcm_key"]; exists {
 		device.Pushers.GCM = &Pusher{
@@ -409,6 +421,26 @@ func (r *RequestBundle) updateDevicePusherLastUsed(device Device, pusher string)
 		return reply.Err
 	}
 	r.Audit("devices:"+device.ID.String(), pusher+"_last_used", was.Format(time.RFC3339), now.Format(time.RFC3339))
+	// add repo call to instrumentation
+	// stop instrumentation
+	return nil
+}
+
+func (r *RequestBundle) updateAuthErrorFlag(value bool) error {
+	// start instrumetnation
+	if r.Device.ID == ruid.RUID(0) {
+		return nil
+	}
+	if r.Device.AuthError == value {
+		return nil
+	}
+	reply := r.Repo.client.Hset("devices:"+r.Device.ID.String(), "auth_error", value)
+	// add repo call to instrumentation
+	if reply.Err != nil {
+		r.Log.Error(reply.Err.Error())
+		return reply.Err
+	}
+	r.Audit("devices:"+r.Device.ID.String(), "auth_error", strconv.FormatBool(r.Device.AuthError), strconv.FormatBool(value))
 	// add repo call to instrumentation
 	// stop instrumentation
 	return nil
