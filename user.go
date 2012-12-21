@@ -7,7 +7,7 @@ import (
 	"github.com/fzzbt/radix/redis"
 	"io"
 	"math/rand"
-	"secondbit.org/ruid"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -18,7 +18,7 @@ type Name struct {
 }
 
 type User struct {
-	ID                ruid.RUID     `json:"id,omitempty"`
+	ID                uint64        `json:"id,omitempty"`
 	Username          string        `json:"username,omitempty"`
 	Email             string        `json:"email,omitempty"`
 	EmailUnconfirmed  bool          `json:"email_unconfirmed,omitempty"`
@@ -169,11 +169,11 @@ func (r *RequestBundle) Authenticate(username, secret string) (User, error) {
 	return user, subscriptionError
 }
 
-func (r *RequestBundle) updateUserLastActive(id ruid.RUID) error {
+func (r *RequestBundle) updateUserLastActive(id uint64) error {
 	// start instrumentation
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Hset("users:"+id.String(), "last_active", time.Now().Format(time.RFC3339))
-		mc.Zadd("users_by_last_active", time.Now().Unix(), id.String())
+		mc.Hset("users:"+strconv.FormatUint(id, 10), "last_active", time.Now().Format(time.RFC3339))
+		mc.Zadd("users_by_last_active", time.Now().Unix(), id)
 	})
 	// report repo call to instrumentation
 	if reply.Err != nil {
@@ -198,7 +198,7 @@ func (r *RequestBundle) Register(username, email, given_name, family_name string
 	if email == "" {
 		return User{}, MissingEmailError
 	}
-	id, err := gen.Generate([]byte(username))
+	id, err := r.GetID()
 	if err != nil {
 		r.Log.Error(err.Error())
 		return User{}, err
@@ -259,15 +259,15 @@ func (r *RequestBundle) Register(username, email, given_name, family_name string
 	return user, nil
 }
 
-func (r *RequestBundle) reserveUsername(username string, id ruid.RUID) (bool, error) {
+func (r *RequestBundle) reserveUsername(username string, id uint64) (bool, error) {
 	// start instrumentation
-	reply := r.Repo.client.Hsetnx("usernames_to_ids", strings.ToLower(username), id.String())
+	reply := r.Repo.client.Hsetnx("usernames_to_ids", strings.ToLower(username), id)
 	// report repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return false, reply.Err
 	}
-	r.Audit("usernames_to_ids", strings.ToLower(username), "", id.String())
+	r.Audit("usernames_to_ids", strings.ToLower(username), "", strconv.FormatUint(id, 10))
 	// report repo calls to instrumentation
 	// stop instrumentation
 	return reply.Bool()
@@ -336,14 +336,14 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 			from["given_name"] = old_user.Name.Given
 		}
 		reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-			mc.Hmset("users:"+user.ID.String(), changes)
+			mc.Hmset("users:"+strconv.FormatUint(user.ID, 10), changes)
 		})
 		// add repo call to instrumentation
 		if reply.Err != nil {
 			r.Log.Error(reply.Err.Error())
 			return reply.Err
 		}
-		r.AuditMap("users:"+user.ID.String(), from, changes)
+		r.AuditMap("users:"+strconv.FormatUint(user.ID, 10), from, changes)
 		// add repo call to instrumentation
 		return nil
 	}
@@ -376,24 +376,24 @@ func (r *RequestBundle) storeUser(user User, update bool) error {
 		"subscription_expires": "",
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Hmset("users:"+user.ID.String(), changes)
-		mc.Zadd("users_by_join_date", user.Joined.Unix(), user.ID.String())
-		mc.Zadd("users_by_subscription_expiration", user.Subscription.Expires.Unix(), user.ID.String())
+		mc.Hmset("users:"+strconv.FormatUint(user.ID, 10), changes)
+		mc.Zadd("users_by_join_date", user.Joined.Unix(), user.ID)
+		mc.Zadd("users_by_subscription_expiration", user.Subscription.Expires.Unix(), user.ID)
 	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.AuditMap("users:"+user.ID.String(), from, changes)
+	r.AuditMap("users:"+strconv.FormatUint(user.ID, 10), from, changes)
 	// add repo call to instrumentation
 	// stop instrumentation
 	return nil
 }
 
-func (r *RequestBundle) GetUser(id ruid.RUID) (User, error) {
+func (r *RequestBundle) GetUser(id uint64) (User, error) {
 	// start instrumentation
-	reply := r.Repo.client.Hgetall("users:" + id.String())
+	reply := r.Repo.client.Hgetall("users:" + strconv.FormatUint(id, 10))
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
@@ -446,7 +446,7 @@ func (r *RequestBundle) GetUser(id ruid.RUID) (User, error) {
 	return user, nil
 }
 
-func (r *RequestBundle) GetUserID(username string) (ruid.RUID, error) {
+func (r *RequestBundle) GetUserID(username string) (uint64, error) {
 	var idstr string
 	var err error
 	// start instrumentation
@@ -457,22 +457,22 @@ func (r *RequestBundle) GetUserID(username string) (ruid.RUID, error) {
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
-		return ruid.RUID(0), reply.Err
+		return uint64(0), reply.Err
 	}
 	if reply.Type == redis.ReplyNil {
-		return ruid.RUID(0), UserNotFoundError
+		return uint64(0), UserNotFoundError
 	}
 	idstr, err = reply.Str()
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
 	// cache the user id
 	// add cache request to instrumentation
-	id, err := ruid.RUIDFromString(idstr)
+	id, err := strconv.ParseUint(idstr, 10, 64)
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
 	// stop instrumentation
 	return id, nil
@@ -565,7 +565,7 @@ func (r *RequestBundle) GetUsersByActivity(count int, active_after, active_befor
 			r.Log.Error(err.Error())
 			return []User{}, err
 		}
-		id, err := ruid.RUIDFromString(list[pos])
+		id, err := strconv.ParseUint(list[pos], 10, 64)
 		if err != nil {
 			r.Log.Error(err.Error())
 			continue
@@ -683,7 +683,7 @@ func (r *RequestBundle) GetUsersByJoinDate(count int, after, before time.Time) (
 			r.Log.Error(err.Error())
 			return []User{}, err
 		}
-		id, err := ruid.RUIDFromString(list[pos])
+		id, err := strconv.ParseUint(list[pos], 10, 64)
 		if err != nil {
 			r.Log.Error(err.Error())
 			continue
@@ -821,7 +821,7 @@ func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
 		cred2 = tmpcred1
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Set("tokens:"+cred1+":"+cred2, user.ID.String())
+		mc.Set("tokens:"+cred1+":"+cred2, user.ID)
 		mc.Expire("tokens:"+cred1+":"+cred2, "300")
 	})
 	// add the repo request to instrumentation
@@ -833,12 +833,12 @@ func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
 			return [2]string{"", ""}, rep.Err
 		}
 	}
-	r.Audit("tokens:"+user.ID.String(), cred1, "", cred2)
+	r.Audit("tokens:"+strconv.FormatUint(user.ID, 10), cred1, "", cred2)
 	// add the repo requests to instrumentation
 	return [2]string{cred1, cred2}, nil
 }
 
-func (r *RequestBundle) CheckTempCredentials(cred1, cred2 string) (ruid.RUID, error) {
+func (r *RequestBundle) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
 	// start instrumentation
 	firstcred := cred1
 	secondcred := cred2
@@ -850,22 +850,22 @@ func (r *RequestBundle) CheckTempCredentials(cred1, cred2 string) (ruid.RUID, er
 	// add the repo request to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
-		return ruid.RUID(0), reply.Err
+		return uint64(0), reply.Err
 	}
 	if reply.Type == redis.ReplyNil {
 		// add invalid credential error to stats
 		// add the repo requests to instrumentation
-		return ruid.RUID(0), InvalidCredentialsError
+		return uint64(0), InvalidCredentialsError
 	}
 	val, err := reply.Str()
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
-	id, err := ruid.RUIDFromString(val)
+	id, err := strconv.ParseUint(val, 10, 64)
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
 	return id, nil
 	// stop instrumentation
@@ -974,7 +974,7 @@ func (r *RequestBundle) CancelSubscription(user User) error {
 	return nil
 }
 
-func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscription) error {
+func (r *RequestBundle) storeSubscription(userID uint64, subscription *Subscription) error {
 	// start instrumentation
 	changes := map[string]interface{}{}
 	from := map[string]interface{}{}
@@ -993,19 +993,19 @@ func (r *RequestBundle) storeSubscription(userID ruid.RUID, subscription *Subscr
 		from["subscription_id"] = old_sub.ID
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Hmset("users:"+userID.String(), changes)
-		mc.Zadd("users_by_subscription_expiration", subscription.Expires.Unix(), userID.String())
+		mc.Hmset("users:"+strconv.FormatUint(userID, 10), changes)
+		mc.Zadd("users_by_subscription_expiration", subscription.Expires.Unix(), userID)
 	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.AuditMap("users:"+userID.String(), from, changes)
+	r.AuditMap("users:"+strconv.FormatUint(userID, 10), from, changes)
 	// stop instrumentation
 	return nil
 }
 
-func (r *RequestBundle) GetGraceSubscriptions(after, before ruid.RUID, count int) ([]Subscription, error) {
+func (r *RequestBundle) GetGraceSubscriptions(after, before uint64, count int) ([]Subscription, error) {
 	return []Subscription{}, nil
 }

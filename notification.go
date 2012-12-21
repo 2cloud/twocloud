@@ -2,19 +2,18 @@ package twocloud
 
 import (
 	"errors"
-	"secondbit.org/ruid"
 	"time"
 )
 
 type Notification struct {
-	ID              ruid.RUID `json:"id,omitempty"`
+	ID              uint64    `json:"id,omitempty"`
 	Nature          string    `json:"nature,omitempty"`
 	Body            string    `json:"body,omitempty"`
 	Unread          bool      `json:"unread,omitempty"`
-	ReadBy          ruid.RUID `json:"read_by,omitempty"`
+	ReadBy          uint64    `json:"read_by,omitempty"`
 	TimeRead        time.Time `json:"time_read,omitempty"`
 	Sent            time.Time `json:"sent,omitempty"`
-	Destination     ruid.RUID `json:"owner,omitempty"`
+	Destination     uint64    `json:"owner,omitempty"`
 	DestinationType string    `json:"owner_type,omitempty"`
 }
 
@@ -40,15 +39,15 @@ func (b *BroadcastFilter) IsValid() bool {
 
 var InvalidBroadcastFilter = errors.New("Invalid broadcast filter.")
 
-func (r *RequestBundle) GetNotificationsByDevice(device Device, before, after ruid.RUID, count int) ([]Notification, error) {
+func (r *RequestBundle) GetNotificationsByDevice(device Device, before, after uint64, count int) ([]Notification, error) {
 	return []Notification{}, nil
 }
 
-func (r *RequestBundle) GetNotificationsByUser(user User, before, after ruid.RUID, count int) ([]Notification, error) {
+func (r *RequestBundle) GetNotificationsByUser(user User, before, after uint64, count int) ([]Notification, error) {
 	return []Notification{}, nil
 }
 
-func (r *RequestBundle) GetNotification(id ruid.RUID) (Notification, error) {
+func (r *RequestBundle) GetNotification(id uint64) (Notification, error) {
 	return Notification{}, nil
 }
 

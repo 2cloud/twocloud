@@ -3,19 +3,19 @@ package twocloud
 import (
 	"github.com/PuerkitoBio/purell"
 	"github.com/fzzbt/radix/redis"
-	"secondbit.org/ruid"
+	"strconv"
 	"time"
 )
 
 type URL struct {
-	ID          ruid.RUID `json:"id,omitempty"`
+	ID          uint64    `json:"id,omitempty"`
 	FirstSeen   time.Time `json:"first_seen,omitempty"`
 	SentCounter int64     `json:"sent_counter,omitempty"`
 	Address     string    `json:"address,omitempty"`
 }
 
 type Link struct {
-	ID       ruid.RUID `json:"id,omitempty"`
+	ID       uint64    `json:"id,omitempty"`
 	URL      *URL      `json:"url,omitempty"`
 	Unread   bool      `json:"unread,omitempty"`
 	TimeRead time.Time `json:"time_read,omitempty"`
@@ -33,24 +33,24 @@ const (
 	RoleReceiver
 )
 
-func (r *RequestBundle) GetLinksByDevice(device Device, role RoleFlag, before, after ruid.RUID, count int) ([]Link, error) {
+func (r *RequestBundle) GetLinksByDevice(device Device, role RoleFlag, before, after uint64, count int) ([]Link, error) {
 	return []Link{}, nil
 }
 
-func (r *RequestBundle) GetLinksByUser(user User, role RoleFlag, before, after ruid.RUID, count int) ([]Link, error) {
+func (r *RequestBundle) GetLinksByUser(user User, role RoleFlag, before, after uint64, count int) ([]Link, error) {
 	return []Link{}, nil
 }
 
-func (r *RequestBundle) GetLink(id ruid.RUID) (Link, error) {
+func (r *RequestBundle) GetLink(id uint64) (Link, error) {
 	return Link{}, nil
 }
 
 func (r *RequestBundle) AddLinks(links []Link) ([]Link, error) {
 	urls := []*URL{}
-	url_counts := map[ruid.RUID]int{}
+	url_counts := map[uint64]int{}
 	reservedAddress := []string{}
 	for pos, link := range links {
-		id, err := gen.Generate([]byte(link.URL.Address))
+		id, err := r.GetID()
 		if err != nil {
 			r.Log.Error(err.Error())
 			for _, a := range reservedAddress {
@@ -92,7 +92,7 @@ func (r *RequestBundle) AddLinks(links []Link) ([]Link, error) {
 			link.URL.ID = newID
 		}
 		url_counts[link.URL.ID] = url_counts[link.URL.ID] + 1
-		linkID, err := gen.Generate([]byte(link.URL.Address))
+		linkID, err := r.GetID()
 		if err != nil {
 			r.Log.Error(err.Error())
 			for _, a := range reservedAddress {
@@ -158,7 +158,7 @@ func (r *RequestBundle) AddLink(address, comment string, sender, receiver Device
 }
 
 func (r *RequestBundle) storeURLs(urls []*URL) error {
-	auditlog := map[ruid.RUID]map[string]interface{}{}
+	auditlog := map[uint64]map[string]interface{}{}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		for _, url := range urls {
 			if url == nil {
@@ -169,7 +169,7 @@ func (r *RequestBundle) storeURLs(urls []*URL) error {
 				"sent_counter": 0,
 				"address":      url.Address,
 			}
-			mc.Hmset("urls:"+url.ID.String(), changes)
+			mc.Hmset("urls:"+strconv.FormatUint(url.ID, 10), changes)
 			auditlog[url.ID] = changes
 		}
 	})
@@ -179,12 +179,12 @@ func (r *RequestBundle) storeURLs(urls []*URL) error {
 		return reply.Err
 	}
 	from := map[string]interface{}{
-		"first_seen": "",
+		"first_seen":   "",
 		"sent_counter": "",
-		"address": "",
+		"address":      "",
 	}
 	for id, audit := range auditlog {
-		r.AuditMap("urls:"+id.String(), audit, from)
+		r.AuditMap("urls:"+strconv.FormatUint(id, 10), audit, from)
 	}
 	// add repo calls to instrumentation
 	// stop instrumentation
@@ -194,12 +194,12 @@ func (r *RequestBundle) storeURLs(urls []*URL) error {
 func (r *RequestBundle) storeLinks(links []Link, update bool) error {
 	// start instrumentation
 	if update {
-		changes := map[ruid.RUID]map[string]interface{}{}
-		from := map[ruid.RUID]map[string]interface{}{}
-		linksFromID := map[ruid.RUID]Link{}
+		changes := map[uint64]map[string]interface{}{}
+		from := map[uint64]map[string]interface{}{}
+		linksFromID := map[uint64]Link{}
 		reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 			for _, link := range links {
-				mc.Hgetall("links:" + link.ID.String())
+				mc.Hgetall("links:" + strconv.FormatUint(link.ID, 10))
 				linksFromID[link.ID] = link
 			}
 		})
@@ -239,9 +239,9 @@ func (r *RequestBundle) storeLinks(links []Link, update bool) error {
 		}
 		reply = r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 			for id, values := range changes {
-				mc.Hmset("links:"+id.String(), values)
+				mc.Hmset("links:"+strconv.FormatUint(id, 10), values)
 				if unread, set := values["unread"]; set && !unread.(bool) {
-					mc.Lrem("devices:"+linksFromID[id].Receiver.ID.String()+":links:unread", 0, id.String())
+					mc.Lrem("devices:"+strconv.FormatUint(linksFromID[id].Receiver.ID, 10)+":links:unread", 0, id)
 				}
 			}
 		})
@@ -251,39 +251,39 @@ func (r *RequestBundle) storeLinks(links []Link, update bool) error {
 			return reply.Err
 		}
 		for id, _ := range changes {
-			r.AuditMap("links:"+id.String(), from[id], changes[id])
+			r.AuditMap("links:"+strconv.FormatUint(id, 10), from[id], changes[id])
 		}
 		// add repo calls to instrumentation
 		return nil
 	}
-	changes := map[ruid.RUID]map[string]interface{}{}
-	senders := map[ruid.RUID][]string{}
-	receivers := map[ruid.RUID][]string{}
-	unread := map[ruid.RUID][]string{}
-	deviceIDs := map[ruid.RUID]string{}
-	requestOrder := []ruid.RUID{}
+	changes := map[uint64]map[string]interface{}{}
+	senders := map[uint64][]uint64{}
+	receivers := map[uint64][]uint64{}
+	unread := map[uint64][]uint64{}
+	deviceIDs := map[uint64]uint64{}
+	requestOrder := []uint64{}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		for _, link := range links {
 			values := map[string]interface{}{
 				"unread":    link.Unread,
 				"time_read": link.TimeRead.Format(time.RFC3339),
-				"sender":    link.Sender.ID.String(),
-				"receiver":  link.Receiver.ID.String(),
+				"sender":    link.Sender.ID,
+				"receiver":  link.Receiver.ID,
 				"comment":   link.Comment,
 				"sent":      link.Sent.Format(time.RFC3339),
 			}
 			if link.URL != nil {
-				values["url"] = link.URL.ID.String()
+				values["url"] = link.URL.ID
 			}
 			changes[link.ID] = values
-			mc.Hmset("links:"+link.ID.String(), values)
-			senders[link.Sender.ID] = append(senders[link.Sender.ID], link.ID.String())
-			receivers[link.Receiver.ID] = append(receivers[link.Receiver.ID], link.ID.String())
+			mc.Hmset("links:"+strconv.FormatUint(link.ID, 10), values)
+			senders[link.Sender.ID] = append(senders[link.Sender.ID], link.ID)
+			receivers[link.Receiver.ID] = append(receivers[link.Receiver.ID], link.ID)
 			if link.Unread {
-				unread[link.Receiver.ID] = append(unread[link.Receiver.ID], link.ID.String())
+				unread[link.Receiver.ID] = append(unread[link.Receiver.ID], link.ID)
 			}
-			deviceIDs[link.Sender.ID] = ""
-			deviceIDs[link.Receiver.ID] = ""
+			deviceIDs[link.Sender.ID] = 0
+			deviceIDs[link.Receiver.ID] = 0
 		}
 	})
 	// add repo call to instrumentation
@@ -293,7 +293,7 @@ func (r *RequestBundle) storeLinks(links []Link, update bool) error {
 	}
 	reply = r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		for id, _ := range deviceIDs {
-			mc.Hget("devices:"+id.String(), "user_id")
+			mc.Hget("devices:"+strconv.FormatUint(id, 10), "user_id")
 			requestOrder = append(requestOrder, id)
 		}
 	})
@@ -303,25 +303,30 @@ func (r *RequestBundle) storeLinks(links []Link, update bool) error {
 		return reply.Err
 	}
 	for pos, el := range reply.Elems {
-		user_id, err := el.Str()
+		user_id_str, err := el.Str()
 		if err != nil {
-			r.Log.Error(reply.Err.Error())
+			r.Log.Error(err.Error())
+			continue
+		}
+		user_id, err := strconv.ParseUint(user_id_str, 10, 64)
+		if err != nil {
+			r.Log.Error(err.Error())
 			continue
 		}
 		deviceIDs[requestOrder[pos]] = user_id
 	}
 	reply = r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
 		for deviceID, linkIDs := range senders {
-			mc.Lpush("devices:"+deviceID.String()+":links:sent", linkIDs)
-			mc.Lpush("users:"+deviceIDs[deviceID]+":links:sent", linkIDs)
+			mc.Lpush("devices:"+strconv.FormatUint(deviceID, 10)+":links:sent", linkIDs)
+			mc.Lpush("users:"+strconv.FormatUint(deviceIDs[deviceID], 10)+":links:sent", linkIDs)
 		}
 		for deviceID, linkIDs := range unread {
-			mc.Lpush("devices:"+deviceID.String()+":links:unread", linkIDs)
-			mc.Lpush("users:"+deviceIDs[deviceID]+":links:unread", linkIDs)
+			mc.Lpush("devices:"+strconv.FormatUint(deviceID, 10)+":links:unread", linkIDs)
+			mc.Lpush("users:"+strconv.FormatUint(deviceIDs[deviceID], 10)+":links:unread", linkIDs)
 		}
 		for deviceID, linkIDs := range receivers {
-			mc.Lpush("devices:"+deviceID.String()+":links:received", linkIDs)
-			mc.Lpush("users:"+deviceIDs[deviceID]+":links:received", linkIDs)
+			mc.Lpush("devices:"+strconv.FormatUint(deviceID, 10)+":links:received", linkIDs)
+			mc.Lpush("users:"+strconv.FormatUint(deviceIDs[deviceID], 10)+":links:received", linkIDs)
 		}
 	})
 	// add repo call to instrumentation
@@ -339,41 +344,41 @@ func (r *RequestBundle) storeLinks(links []Link, update bool) error {
 		"url":       "",
 	}
 	for id, _ := range changes {
-		r.AuditMap("links:"+id.String(), from, changes[id])
+		r.AuditMap("links:"+strconv.FormatUint(id, 10), from, changes[id])
 	}
 	// add repo calls to instrumentation
 	return nil
 }
 
-func (r *RequestBundle) getIDFromAddress(address string) (ruid.RUID, error) {
+func (r *RequestBundle) getIDFromAddress(address string) (uint64, error) {
 	// start instrumentation
 	var err error
 	address, err = purell.NormalizeURLString(address, purell.FlagsSafe)
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
 	reply := r.Repo.client.Hget("urls_to_ids", address)
 	// report repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
-		return ruid.RUID(0), reply.Err
+		return uint64(0), reply.Err
 	}
 	idstr, err := reply.Str()
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
-	id, err := ruid.RUIDFromString(idstr)
+	id, err := strconv.ParseUint(idstr, 10, 64)
 	if err != nil {
 		r.Log.Error(err.Error())
-		return ruid.RUID(0), err
+		return uint64(0), err
 	}
 	return id, nil
 	// stop instrumentation
 }
 
-func (r *RequestBundle) reserveAddress(address string, id ruid.RUID) (bool, error) {
+func (r *RequestBundle) reserveAddress(address string, id uint64) (bool, error) {
 	// start instrumentation
 	var err error
 	address, err = purell.NormalizeURLString(address, purell.FlagsSafe)
@@ -381,13 +386,13 @@ func (r *RequestBundle) reserveAddress(address string, id ruid.RUID) (bool, erro
 		r.Log.Error(err.Error())
 		return false, err
 	}
-	reply := r.Repo.client.Hsetnx("urls_to_ids", address, id.String())
+	reply := r.Repo.client.Hsetnx("urls_to_ids", address, id)
 	// report repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return false, reply.Err
 	}
-	r.Audit("urls_to_ids", address, "", id.String())
+	r.Audit("urls_to_ids", address, "", strconv.FormatUint(id, 10))
 	// report repo calls to instrumentation
 	// stop instrumentation
 	return reply.Bool()
@@ -427,9 +432,9 @@ func (r *RequestBundle) releaseAddress(address string) error {
 	return nil
 }
 
-func (r *RequestBundle) incrementURL(id ruid.RUID, count int) error {
-	r.Log.Debug("About to increment urls:%s by %d", id.String(), count)
-	reply := r.Repo.client.Hincrby("urls:"+id.String(), "sent_counter", count)
+func (r *RequestBundle) incrementURL(id uint64, count int) error {
+	r.Log.Debug("About to increment urls:%d by %d", id, count)
+	reply := r.Repo.client.Hincrby("urls:"+strconv.FormatUint(id, 10), "sent_counter", count)
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err

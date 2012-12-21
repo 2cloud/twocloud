@@ -3,21 +3,20 @@ package twocloud
 import (
 	"errors"
 	"github.com/fzzbt/radix/redis"
-	"secondbit.org/ruid"
 	"strconv"
 	"strings"
 	"time"
 )
 
 type Device struct {
-	ID         ruid.RUID `json:"id,omitempty"`
+	ID         uint64    `json:"id,omitempty"`
 	Name       string    `json:"name,omitempty"`
 	LastSeen   time.Time `json:"last_seen,omitempty"`
 	LastIP     string    `json:"last_ip,omitempty"`
 	ClientType string    `json:"client_type,omitempty"`
 	Created    time.Time `json:"created,omitempty"`
 	Pushers    *Pushers  `json:"pushers,omitempty"`
-	UserID     ruid.RUID `json:"user_id,omitempty"`
+	UserID     uint64    `json:"user_id,omitempty"`
 	AuthError  bool      `json:"auth_error,omitempty"`
 }
 
@@ -48,7 +47,7 @@ func (d *Device) ValidClientType() bool {
 
 func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 	// start instrumentation
-	reply := r.Repo.client.Zrevrange("users:"+user.ID.String()+":devices", 0, -1)
+	reply := r.Repo.client.Zrevrange("users:"+strconv.FormatUint(user.ID, 10)+":devices", 0, -1)
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
@@ -87,11 +86,11 @@ func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 		if err != nil {
 			return devices, err
 		}
-		user_id, err := ruid.RUIDFromString(hash["user_id"])
+		user_id, err := strconv.ParseUint(hash["user_id"], 10, 64)
 		if err != nil {
 			return devices, err
 		}
-		id, err := ruid.RUIDFromString(ids[pos])
+		id, err := strconv.ParseUint(ids[pos], 10, 64)
 		if err != nil {
 			return devices, err
 		}
@@ -138,12 +137,12 @@ func (r *RequestBundle) GetDevicesByUser(user User) ([]Device, error) {
 	return devices, nil
 }
 
-func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
+func (r *RequestBundle) GetDevice(id uint64) (Device, error) {
 	// start instrumentation
 	if r.Device.ID == id {
 		return r.Device, nil
 	}
-	reply := r.Repo.client.Hgetall("devices:" + id.String())
+	reply := r.Repo.client.Hgetall("devices:" + strconv.FormatUint(id, 10))
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
@@ -167,7 +166,7 @@ func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
 		r.Log.Error(err.Error())
 		return Device{}, err
 	}
-	user_id, err := ruid.RUIDFromString(hash["user_id"])
+	user_id, err := strconv.ParseUint(hash["user_id"], 10, 64)
 	if err != nil {
 		r.Log.Error(err.Error())
 		return Device{}, err
@@ -214,7 +213,7 @@ func (r *RequestBundle) GetDevice(id ruid.RUID) (Device, error) {
 }
 
 func (r *RequestBundle) AddDevice(name, client_type, ip, gcm_key string, user User) (Device, error) {
-	id, err := gen.Generate([]byte(user.ID.String()))
+	id, err := r.GetID()
 	if err != nil {
 		r.Log.Error(err.Error())
 		return Device{}, err
@@ -279,14 +278,14 @@ func (r *RequestBundle) storeDevice(device Device, update bool) error {
 			from["gcm_key"] = old_device.Pushers.GCM.Key
 		}
 		reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-			mc.Hmset("devices:"+device.ID.String(), changes)
+			mc.Hmset("devices:"+strconv.FormatUint(device.ID, 10), changes)
 		})
 		// add repo call to instrumentation
 		if reply.Err != nil {
 			r.Log.Error(reply.Err.Error())
 			return reply.Err
 		}
-		r.AuditMap("devices:"+device.ID.String(), from, changes)
+		r.AuditMap("devices:"+strconv.FormatUint(device.ID, 10), from, changes)
 		// add repo call to instrumentation
 		return nil
 	}
@@ -296,7 +295,7 @@ func (r *RequestBundle) storeDevice(device Device, update bool) error {
 		"last_ip":     device.LastIP,
 		"client_type": device.ClientType,
 		"created":     time.Now().Format(time.RFC3339),
-		"user_id":     device.UserID.String(),
+		"user_id":     device.UserID,
 	}
 	from := map[string]interface{}{
 		"name":        "",
@@ -311,15 +310,15 @@ func (r *RequestBundle) storeDevice(device Device, update bool) error {
 		from["gcm_key"] = ""
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Hmset("devices:"+device.ID.String(), changes)
-		mc.Zadd("users:"+device.UserID.String()+":devices", device.LastSeen.Unix(), device.ID.String())
+		mc.Hmset("devices:"+strconv.FormatUint(device.ID, 10), changes)
+		mc.Zadd("users:"+strconv.FormatUint(device.UserID, 10)+":devices", device.LastSeen.Unix(), device.ID)
 	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.AuditMap("devices:"+device.ID.String(), from, changes)
+	r.AuditMap("devices:"+strconv.FormatUint(device.ID, 10), from, changes)
 	// add repo call to instrumentation
 	// stop instrumentation
 	return nil
@@ -369,7 +368,7 @@ func (r *RequestBundle) UpdateDevice(device Device, name, client_type, gcm_key s
 
 func (r *RequestBundle) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {
 	now := time.Now()
-	reply := r.Repo.client.Hmset("devices:"+device.ID.String(), "last_seen", now.Format(time.RFC3339), "last_ip", ip)
+	reply := r.Repo.client.Hmset("devices:"+strconv.FormatUint(device.ID, 10), "last_seen", now.Format(time.RFC3339), "last_ip", ip)
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		return Device{}, reply.Err
@@ -384,7 +383,7 @@ func (r *RequestBundle) UpdateDeviceLastSeen(device Device, ip string) (Device, 
 		"last_seen": now.Format(time.RFC3339),
 		"last_ip":   ip,
 	}
-	r.AuditMap("devices:"+device.ID.String(), from, to)
+	r.AuditMap("devices:"+strconv.FormatUint(device.ID, 10), from, to)
 	// add repo call to instrumentation
 	// stop instrumentation
 	return device, nil
@@ -414,13 +413,13 @@ func (r *RequestBundle) updateDevicePusherLastUsed(device Device, pusher string)
 			was = device.Pushers.WebSockets.LastUsed
 		}
 	}
-	reply := r.Repo.client.Hset("devices:"+device.ID.String(), pusher+"_last_used", now.Format(time.RFC3339))
+	reply := r.Repo.client.Hset("devices:"+strconv.FormatUint(device.ID, 10), pusher+"_last_used", now.Format(time.RFC3339))
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.Audit("devices:"+device.ID.String(), pusher+"_last_used", was.Format(time.RFC3339), now.Format(time.RFC3339))
+	r.Audit("devices:"+strconv.FormatUint(device.ID, 10), pusher+"_last_used", was.Format(time.RFC3339), now.Format(time.RFC3339))
 	// add repo call to instrumentation
 	// stop instrumentation
 	return nil
@@ -428,19 +427,19 @@ func (r *RequestBundle) updateDevicePusherLastUsed(device Device, pusher string)
 
 func (r *RequestBundle) updateAuthErrorFlag(value bool) error {
 	// start instrumetnation
-	if r.Device.ID == ruid.RUID(0) {
+	if r.Device.ID == 0 {
 		return nil
 	}
 	if r.Device.AuthError == value {
 		return nil
 	}
-	reply := r.Repo.client.Hset("devices:"+r.Device.ID.String(), "auth_error", value)
+	reply := r.Repo.client.Hset("devices:"+strconv.FormatUint(r.Device.ID, 10), "auth_error", value)
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.Audit("devices:"+r.Device.ID.String(), "auth_error", strconv.FormatBool(r.Device.AuthError), strconv.FormatBool(value))
+	r.Audit("devices:"+strconv.FormatUint(r.Device.ID, 10), "auth_error", strconv.FormatBool(r.Device.AuthError), strconv.FormatBool(value))
 	// add repo call to instrumentation
 	// stop instrumentation
 	return nil

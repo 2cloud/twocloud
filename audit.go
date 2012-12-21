@@ -2,7 +2,7 @@ package twocloud
 
 import (
 	"github.com/fzzbt/radix/redis"
-	"secondbit.org/ruid"
+	"strconv"
 	"time"
 )
 
@@ -21,7 +21,7 @@ func (a *Auditor) Close() {
 }
 
 type Change struct {
-	ID        ruid.RUID   `json:"id"`
+	ID        uint64      `json:"id"`
 	Key       string      `json:"key"`
 	Field     string      `json:"field"`
 	From      interface{} `json:"from"`
@@ -31,10 +31,10 @@ type Change struct {
 	Timestamp time.Time   `json:"timestamp"`
 }
 
-func (a *Auditor) Insert(key, ip string, user User, from, to map[string]interface{}) error {
+func (a *Auditor) Insert(r *RequestBundle, key, ip string, user User, from, to map[string]interface{}) error {
 	changes := []Change{}
 	for k, v := range to {
-		id, err := gen.Generate([]byte(key))
+		id, err := r.GetID()
 		if err != nil {
 			return err
 		}
@@ -53,11 +53,11 @@ func (a *Auditor) Insert(key, ip string, user User, from, to map[string]interfac
 	reply := a.client.MultiCall(func(mc *redis.MultiCall) {
 		for _, change := range changes {
 			user_str := ""
-			if change.User.ID != ruid.RUID(0) {
-				user_str = change.User.ID.String()
+			if change.User.ID != 0 {
+				user_str = strconv.FormatUint(change.User.ID, 10)
 			}
-			mc.Hmset("audit:"+change.Key+":item:"+change.ID.String(), "from", change.From, "to", change.To, "field", change.Field, "timestamp", change.Timestamp.Format(time.RFC3339), "user", user_str)
-			mc.Lpush("audit:"+key, change.ID.String())
+			mc.Hmset("audit:"+change.Key+":item:"+strconv.FormatUint(change.ID, 10), "from", change.From, "to", change.To, "field", change.Field, "timestamp", change.Timestamp.Format(time.RFC3339), "user", user_str)
+			mc.Lpush("audit:"+key, change.ID)
 		}
 	})
 	return reply.Err
@@ -69,7 +69,7 @@ func (r *RequestBundle) Audit(key, field, fromstr, tostr string) {
 		from[field] = fromstr
 		to := map[string]interface{}{}
 		to[field] = tostr
-		err := r.Auditor.Insert(key, r.Request.RemoteAddr, r.AuthUser, from, to)
+		err := r.Auditor.Insert(r, key, r.Request.RemoteAddr, r.AuthUser, from, to)
 		if err != nil {
 			r.Log.Error(err.Error())
 		}
@@ -78,7 +78,7 @@ func (r *RequestBundle) Audit(key, field, fromstr, tostr string) {
 
 func (r *RequestBundle) AuditMap(key string, from, to map[string]interface{}) {
 	if r.Auditor != nil {
-		err := r.Auditor.Insert(key, r.Request.RemoteAddr, r.AuthUser, from, to)
+		err := r.Auditor.Insert(r, key, r.Request.RemoteAddr, r.AuthUser, from, to)
 		if err != nil {
 			r.Log.Error(err.Error())
 		}

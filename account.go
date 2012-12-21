@@ -7,13 +7,13 @@ import (
 	"github.com/fzzbt/radix/redis"
 	"io/ioutil"
 	"net/http"
-	"secondbit.org/ruid"
+	"strconv"
 	"time"
 )
 
 type Account struct {
 	Added    time.Time `json:"added,omitempty"`
-	ID       ruid.RUID `json:"id,omitempty"`
+	ID       uint64    `json:"id,omitempty"`
 	Provider string    `json:"provider,omitempty"`
 	// Provided by the provider
 	ForeignID     string `json:"foreign_id,omitempty"`
@@ -27,14 +27,14 @@ type Account struct {
 	Timezone      string `json:"timezone,omitempty"`
 	Gender        string `json:"gender,omitempty"`
 	// private info that is stored, never shared
-	UserID       ruid.RUID `json:"-"`
+	UserID       uint64 `json:"-"`
 	accessToken  string
 	refreshToken string
 	expires      time.Time
 }
 
 func (account *Account) IsEmpty() bool {
-	return account.ID.String() == ruid.RUID(0).String()
+	return account.ID == 0
 }
 
 type googleAccount struct {
@@ -126,12 +126,12 @@ func (r *RequestBundle) GetAccount(access, refresh string, expiration time.Time)
 		Timezone:      googAccount.Timezone,
 		Locale:        googAccount.Locale,
 		Gender:        googAccount.Gender,
-		UserID:        ruid.RUID(0),
+		UserID:        0,
 		accessToken:   access,
 		refreshToken:  refresh,
 		expires:       expiration,
 	}
-	id, err := gen.Generate([]byte(googAccount.ID))
+	id, err := r.GetID()
 	if err != nil {
 		r.Log.Error(err.Error())
 		return Account{}, err
@@ -219,7 +219,7 @@ func (r *RequestBundle) getAccountByForeignID(foreign_id string) (Account, error
 		r.Log.Error(err.Error())
 		return Account{}, nil
 	}
-	id, err := ruid.RUIDFromString(account_id)
+	id, err := strconv.ParseUint(account_id, 10, 64)
 	if err != nil {
 		r.Log.Error(err.Error())
 		return Account{}, err
@@ -234,16 +234,16 @@ func (r *RequestBundle) getAccountByForeignID(foreign_id string) (Account, error
 	return account, nil
 }
 
-func (r *RequestBundle) GetAccountByID(id ruid.RUID) (Account, error) {
+func (r *RequestBundle) GetAccountByID(id uint64) (Account, error) {
 	// start instrumentation
-	reply := r.Repo.client.Hgetall("accounts:" + id.String())
+	reply := r.Repo.client.Hgetall("accounts:" + strconv.FormatUint(id, 10))
 	// report the request to the repo to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return Account{}, reply.Err
 	}
 	if reply.Type == redis.ReplyNil {
-		r.Log.Warn("Account not found. ID: %s", id)
+		r.Log.Warn("Account not found. ID: %d", id)
 		return Account{}, nil
 	}
 	hash, err := reply.Hash()
@@ -261,7 +261,7 @@ func (r *RequestBundle) GetAccountByID(id ruid.RUID) (Account, error) {
 		r.Log.Error(err.Error())
 		return Account{}, err
 	}
-	user_id, err := ruid.RUIDFromString(hash["user_id"])
+	user_id, err := strconv.ParseUint(hash["user_id"], 10, 64)
 	if err != nil {
 		return Account{}, err
 	}
@@ -336,8 +336,8 @@ func (r *RequestBundle) storeAccount(account Account, update bool) error {
 			from["gender"] = old_account.Gender
 		}
 		if old_account.UserID != account.UserID {
-			changes["user_id"] = account.UserID.String()
-			from["user_id"] = old_account.UserID.String()
+			changes["user_id"] = account.UserID
+			from["user_id"] = old_account.UserID
 		}
 		if old_account.accessToken != account.accessToken {
 			changes["access_token"] = account.accessToken
@@ -351,20 +351,20 @@ func (r *RequestBundle) storeAccount(account Account, update bool) error {
 			changes["expires"] = account.expires.Format(time.RFC3339)
 			from["expires"] = old_account.expires.Format(time.RFC3339)
 		}
-		reply := r.Repo.client.Hmset("accounts:"+account.ID.String(), changes)
+		reply := r.Repo.client.Hmset("accounts:"+strconv.FormatUint(account.ID, 10), changes)
 		// add repo call to instrumentation
 		if reply.Err != nil {
 			r.Log.Error(reply.Err.Error())
 			return reply.Err
 		}
 
-		reply = r.Repo.client.Sadd("users:"+account.UserID.String()+":accounts", account.ID.String())
+		reply = r.Repo.client.Sadd("users:"+strconv.FormatUint(account.UserID, 10)+":accounts", account.ID, 10)
 		// add repo call to instrumentation
 		if reply.Err != nil {
 			r.Log.Error(reply.Err.Error())
 			return reply.Err
 		}
-		r.AuditMap("accounts:"+account.ID.String(), from, changes)
+		r.AuditMap("accounts:"+strconv.FormatUint(account.ID, 10), from, changes)
 		// add repo call to instrumentation
 		return nil
 	}
@@ -381,7 +381,7 @@ func (r *RequestBundle) storeAccount(account Account, update bool) error {
 		"locale":         account.Locale,
 		"timezone":       account.Timezone,
 		"gender":         account.Gender,
-		"user_id":        account.UserID.String(),
+		"user_id":        account.UserID,
 		"access_token":   account.accessToken,
 		"refresh_token":  account.refreshToken,
 		"expires":        account.expires.Format(time.RFC3339),
@@ -405,17 +405,17 @@ func (r *RequestBundle) storeAccount(account Account, update bool) error {
 		"expires":        "",
 	}
 	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Hmset("accounts:"+account.ID.String(), changes)
-		mc.Hmset("oauth_foreign_ids_to_accounts", account.ForeignID, account.ID.String())
-		mc.Sadd("users:"+account.UserID.String()+":accounts", account.ID.String())
+		mc.Hmset("accounts:"+strconv.FormatUint(account.ID, 10), changes)
+		mc.Hmset("oauth_foreign_ids_to_accounts", account.ForeignID, strconv.FormatUint(account.ID, 10))
+		mc.Sadd("users:"+strconv.FormatUint(account.UserID, 10)+":accounts", account.ID)
 	})
 	// add repo call to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
 		return reply.Err
 	}
-	r.AuditMap("accounts:"+account.ID.String(), from, changes)
-	r.Audit("oauth_foreign_ids_to_accounts", account.ForeignID, "", account.ID.String())
+	r.AuditMap("accounts:"+strconv.FormatUint(account.ID, 10), from, changes)
+	r.Audit("oauth_foreign_ids_to_accounts", account.ForeignID, "", strconv.FormatUint(account.ID, 10))
 	// report the repo request to instrumentation
 	// stop instrumentation
 	return nil
@@ -423,7 +423,7 @@ func (r *RequestBundle) storeAccount(account Account, update bool) error {
 
 func (r *RequestBundle) GetAccountsByUser(user User) ([]Account, error) {
 	// start instrumentation
-	reply := r.Repo.client.Smembers("users:" + user.ID.String() + ":accounts")
+	reply := r.Repo.client.Smembers("users:" + strconv.FormatUint(user.ID, 10) + ":accounts")
 	// report the repo request to instrumentation
 	if reply.Err != nil {
 		r.Log.Error(reply.Err.Error())
@@ -469,12 +469,12 @@ func (r *RequestBundle) GetAccountsByUser(user User) ([]Account, error) {
 			r.Log.Error(err.Error())
 			continue
 		}
-		user_id, err := ruid.RUIDFromString(hash["user_id"])
+		user_id, err := strconv.ParseUint(hash["user_id"], 10, 64)
 		if err != nil {
 			r.Log.Error(err.Error())
 			continue
 		}
-		id, err := ruid.RUIDFromString(ids[pos])
+		id, err := strconv.ParseUint(ids[pos], 10, 64)
 		if err != nil {
 			r.Log.Error(err.Error())
 			continue
@@ -544,7 +544,7 @@ func (r *RequestBundle) UpdateAccountData(account Account) (Account, error) {
 	return account, nil
 }
 
-func (r *RequestBundle) AssociateUserWithAccount(account Account, user ruid.RUID) error {
+func (r *RequestBundle) AssociateUserWithAccount(account Account, user uint64) error {
 	// begin instrumentation
 	account.UserID = user
 	err := r.storeAccount(account, true)

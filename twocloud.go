@@ -1,26 +1,15 @@
 package twocloud
 
 import (
+	"github.com/noeq/noeq"
 	"net/http"
-	"secondbit.org/ruid"
-	"time"
 )
 
-var gen *ruid.Generator
-
-func init() {
-	location, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		panic(err.Error())
-	}
-	epoch := time.Date(2010, time.December, 2, 0, 0, 0, 0, location)
-	gen = ruid.NewGenerator(epoch)
-}
-
 type RequestBundle struct {
-	Repo   *Radix
-	Config Config
-	Log    *Log
+	Generator *noeq.Client
+	Repo      *Radix
+	Config    Config
+	Log       *Log
 	// Cache
 	Auditor *Auditor
 	// Instrumentor
@@ -28,4 +17,17 @@ type RequestBundle struct {
 	Request  *http.Request
 	AuthUser User
 	Device   Device
+}
+
+func (rb *RequestBundle) GetID() (id uint64, err error) {
+	for trys := 5; trys > 0; trys-- {
+		id, err = rb.Generator.GenOne()
+		if err != nil {
+			rb.Log.Error(err.Error())
+			continue
+		}
+		return
+	}
+	rb.Log.Error("No ID generated.")
+	return
 }
