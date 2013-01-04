@@ -14,11 +14,16 @@ type Config struct {
 	OAuth                   OAuthClient       `json:"oauth"`
 	TrialPeriod             time.Duration     `json:"trial_period"`
 	GracePeriod             time.Duration     `json:"grace_period"`
-	IDGenerators            map[string]string `json:"id_gen"`
+	Generator               IDGenerator       `json:"id_gen"`
 }
 
 type OAuthClient struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	CallbackURL  string `json:"callback"`
+}
+
+type IDGenerator struct {
+	Address string `json:"address"`
+	Token string `json:"token"`
 }
