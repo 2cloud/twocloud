@@ -158,7 +158,7 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 		LastActive: time.Now(),
 		IsAdmin:    is_admin,
 		Subscription: &Subscription{
-			Expires: time.Now().Add(r.Config.TrialPeriod * time.Hour * 24),
+			Expires: time.Now().Add(p.Config.TrialPeriod * time.Hour * 24),
 		},
 	}
 	// TODO: persist user
@@ -191,7 +191,6 @@ func (p *Persister) UpdateUser(user User, email, given_name, family_name string,
 	email = strings.TrimSpace(email)
 	given_name = strings.TrimSpace(given_name)
 	family_name = strings.TrimSpace(family_name)
-	email_changed := false
 	if email != "" {
 		code, err := GenerateEmailConfirmation()
 		if err != nil {
@@ -201,7 +200,6 @@ func (p *Persister) UpdateUser(user User, email, given_name, family_name string,
 		user.EmailConfirmation = code
 		user.EmailUnconfirmed = true
 		user.Email = email
-		email_changed = true
 	}
 	if name_changed {
 		user.Name.Given = given_name
