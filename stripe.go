@@ -1,5 +1,9 @@
 package twocloud
 
+import (
+	"time"
+)
+
 type StripeAccount struct {
 	ID uint64 `json:"id,omitempty"`
 	ForeignID string `json:"foreign_id,omitempty"`

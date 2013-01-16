@@ -1,5 +1,9 @@
 package twocloud
 
+import (
+	"time"
+)
+
 type DwollaAccount struct {
 	ID uint64 `json:"id,omitempty"`
 	AccessToken string `json:"-"`
