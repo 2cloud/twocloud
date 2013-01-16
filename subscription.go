@@ -4,6 +4,13 @@ import (
 	"time"
 )
 
+var SubscriptionTableCreateStatement = `CREATE TABLE subscriptions (
+	id bigint primary key,
+	expires timestamp NOT NULL,
+	auto_renew bool default false,
+	funding_id varchar NOT NULL,
+	funding_source varchar NOT NULL);`
+
 type Subscription struct {
 	ID            uint64    `json:"id,omitempty"`
 	Active        bool      `json:"active,omitempty"`
@@ -12,6 +19,10 @@ type Subscription struct {
 	AutoRenew     bool      `json:"auto_renew,omitempty"`
 	FundingID     string    `json:"funding_id,omitempty"`
 	FundingSource string    `json:"funding_source,omitempty"`
+}
+
+func (subscription *Subscription) IsEmpty() bool {
+	return subscription.ID == 0
 }
 
 type SubscriptionExpiredError struct {
@@ -38,10 +49,14 @@ func (e *SubscriptionExpiredWarning) Error() string {
 	return "Warning! Your subscription has expired." + specifics
 }
 
-func (p *Persister) updateSubscriptionStatus(user User) {
-	user.Subscription.Active = user.Subscription.Expires.After(time.Now())
-	grace := user.Subscription.Expires.Add(time.Hour * 24 * p.Config.GracePeriod)
-	user.Subscription.InGracePeriod = !user.Subscription.Active && grace.After(time.Now())
+func (subscription *Subscription) fromRow(row ScannableRow) error {
+	return row.Scan(&subscription.ID, &subscription.Expires, &subscription.AutoRenew, &subscription.FundingID, &subscription.FundingSource)
+}
+
+func (p *Persister) updateSubscriptionStatus(subscription *Subscription) {
+	subscription.Active = subscription.Expires.After(time.Now())
+	grace := subscription.Expires.Add(time.Hour * 24 * p.Config.GracePeriod)
+	subscription.InGracePeriod = !subscription.Active && grace.After(time.Now())
 }
 
 // TODO: Need to create new subscription and persist it

@@ -163,7 +163,7 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 	}
 	// TODO: persist user
 	// TODO: return UsernameTakenError on conflict: https://groups.google.com/forum/?fromgroups=#!topic/golang-nuts/TURZm6W5A5o
-	p.updateSubscriptionStatus(user)
+	p.updateSubscriptionStatus(user.Subscription)
 	return user, nil
 }
 
