@@ -16,7 +16,7 @@ func GenerateTempCredentials() string {
 }
 
 // TODO: Need to store temp credentials with an expiration date
-func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
+func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 	tmpcred1 := GenerateTempCredentials()
 	tmpcred2 := GenerateTempCredentials()
 	cred1 := tmpcred1
@@ -29,7 +29,7 @@ func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
 }
 
 // TODO: Need to query the temp credentials and check their expiration date
-func (r *RequestBundle) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
+func (p *Persister) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
 	firstcred := cred1
 	secondcred := cred2
 	if firstcred > secondcred {
