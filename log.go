@@ -45,15 +45,15 @@ func (l *Log) SetLogLevel(level logLevel) {
 	l.logLevel = level
 }
 
-func StdOutLogger(level logLevel) *Log {
-	return &Log{
+func StdOutLogger(level logLevel) Log {
+	return Log{
 		logger:   log.New(os.Stdout, "2cloud", log.LstdFlags),
 		logLevel: level,
 	}
 }
 
-func NullLogger() *Log {
-	return &Log{
+func NullLogger() Log {
+	return Log{
 		logger:   log.New(ioutil.Discard, "2cloud", log.LstdFlags),
 		logLevel: LogLevelError,
 	}

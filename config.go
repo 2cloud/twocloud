@@ -1,20 +1,23 @@
 package twocloud
 
 import (
-	"github.com/fzzbt/radix/redis"
 	"time"
 )
 
 type Config struct {
-	UseSubscriptions        bool              `json:"subscriptions"`
-	MaintenanceMode         bool              `json:"maintenance"`
-	Database                redis.Config      `json:"db"`
-	AuditDatabase           redis.Config      `json:"audit_db"`
-	InstrumentationDatabase redis.Config      `json:"instrumentation_db"`
-	OAuth                   OAuthClient       `json:"oauth"`
-	TrialPeriod             time.Duration     `json:"trial_period"`
-	GracePeriod             time.Duration     `json:"grace_period"`
-	Generator               IDGenerator       `json:"id_gen"`
+	UseSubscriptions bool   `json:"subscriptions"`
+	MaintenanceMode  bool   `json:"maintenance"`
+	Database         string `json:"db"`
+	Auditor          string `json:"audit_db"`
+	Log              struct {
+		Level string `json:"level"`
+		File  string `json:"file"`
+	} `json:"log"`
+	OAuth       OAuthClient   `json:"oauth"`
+	TrialPeriod time.Duration `json:"trial_period"`
+	GracePeriod time.Duration `json:"grace_period"`
+	Generator   IDGenerator   `json:"id_gen"`
+	Culprit     string        `json:"culprit"`
 }
 
 type OAuthClient struct {
@@ -25,5 +28,5 @@ type OAuthClient struct {
 
 type IDGenerator struct {
 	Address string `json:"address"`
-	Token string `json:"token"`
+	Token   string `json:"token"`
 }
