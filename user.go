@@ -29,14 +29,17 @@ type User struct {
 	LastActive        time.Time     `json:"last_active,omitempty"`
 	IsAdmin           bool          `json:"is_admin,omitempty"`
 	Subscription      *Subscription `json:"subscription,omitempty"`
+	ReceiveNewsletter bool          `json:"receives_newsletter,omitempty"`
 }
 
 type Subscription struct {
-	ID            string    `json:"id,omitempty"`
+	ID            uint64    `json:"id,omitempty"`
 	Active        bool      `json:"active,omitempty"`
 	InGracePeriod bool      `json:"in_grace_period,omitempty"`
 	Expires       time.Time `json:"expires,omitempty"`
-	AuthTokens    []string  `json:"auth_tokens,omitempty"`
+	AutoRenew     bool      `json:"auto_renew,omitempty"`
+	FundingID     uint64    `json:"funding_id,omitempty"`
+	FundingSource string    `json:"funding_source,omitempty"`
 }
 
 func GenerateTempCredentials() string {
