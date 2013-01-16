@@ -2,6 +2,7 @@ package twocloud
 
 import (
 	"math/rand"
+	"time"
 )
 
 func GenerateTempCredentials() string {
@@ -14,8 +15,8 @@ func GenerateTempCredentials() string {
 	return cred
 }
 
+// TODO: Need to store temp credentials with an expiration date
 func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
-	// start instrumentation
 	tmpcred1 := GenerateTempCredentials()
 	tmpcred2 := GenerateTempCredentials()
 	cred1 := tmpcred1
@@ -24,53 +25,17 @@ func (r *RequestBundle) CreateTempCredentials(user User) ([2]string, error) {
 		cred1 = tmpcred2
 		cred2 = tmpcred1
 	}
-	reply := r.Repo.client.MultiCall(func(mc *redis.MultiCall) {
-		mc.Set("tokens:"+cred1+":"+cred2, user.ID)
-		mc.Expire("tokens:"+cred1+":"+cred2, "300")
-	})
-	// add the repo request to instrumentation
-	if reply.Err != nil {
-		return [2]string{"", ""}, reply.Err
-	}
-	for _, rep := range reply.Elems {
-		if rep.Err != nil {
-			return [2]string{"", ""}, rep.Err
-		}
-	}
-	r.Audit("tokens:"+strconv.FormatUint(user.ID, 10), cred1, "", cred2)
-	// add the repo requests to instrumentation
 	return [2]string{cred1, cred2}, nil
 }
 
+// TODO: Need to query the temp credentials and check their expiration date
 func (r *RequestBundle) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
-	// start instrumentation
 	firstcred := cred1
 	secondcred := cred2
 	if firstcred > secondcred {
 		firstcred = cred2
 		secondcred = cred1
 	}
-	reply := r.Repo.client.Get("tokens:" + firstcred + ":" + secondcred)
-	// add the repo request to instrumentation
-	if reply.Err != nil {
-		r.Log.Error(reply.Err.Error())
-		return uint64(0), reply.Err
-	}
-	if reply.Type == redis.ReplyNil {
-		// add invalid credential error to stats
-		// add the repo requests to instrumentation
-		return uint64(0), InvalidCredentialsError
-	}
-	val, err := reply.Str()
-	if err != nil {
-		r.Log.Error(err.Error())
-		return uint64(0), err
-	}
-	id, err := strconv.ParseUint(val, 10, 64)
-	if err != nil {
-		r.Log.Error(err.Error())
-		return uint64(0), err
-	}
-	return id, nil
-	// stop instrumentation
+	// TODO: should return the ID of the user the credentials belong to
+	return 0, nil
 }
