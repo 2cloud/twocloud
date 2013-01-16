@@ -63,7 +63,7 @@ func NewPersister(config Config) (*Persister, error) {
 		}
 		defer fileWriter.Close()
 		logger = Log{
-			logger: log.New(fileWriter, "2cloud", log.LstdFlags),
+			logger:   log.New(fileWriter, "2cloud", log.LstdFlags),
 			logLevel: level,
 		}
 	}
