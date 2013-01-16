@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-var accountTableCreateStatement = `CREATE TABLE accounts (
+var AccountTableCreateStatement = `CREATE TABLE accounts (
 	id bigint primary key,
 	provider varchar NOT NULL,
 	foreign_id varchar NOT NULL,
