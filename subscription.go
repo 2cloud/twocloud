@@ -40,7 +40,7 @@ func (e *SubscriptionExpiredWarning) Error() string {
 
 func (p *Persister) updateSubscriptionStatus(user User) {
 	user.Subscription.Active = user.Subscription.Expires.After(time.Now())
-	grace := user.Subscription.Expires.Add(time.Hour * 24 * r.Config.GracePeriod)
+	grace := user.Subscription.Expires.Add(time.Hour * 24 * p.Config.GracePeriod)
 	user.Subscription.InGracePeriod = !user.Subscription.Active && grace.After(time.Now())
 }
 
