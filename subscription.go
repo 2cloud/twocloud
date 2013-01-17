@@ -146,7 +146,7 @@ func (p *Persister) GetSubscriptionsByExpiration(after, before time.Time, count 
 		subscriptions = append(subscriptions, subscription)
 	}
 	err = rows.Err()
-	return []*Subscription{}, err
+	return subscriptions, err
 }
 
 func (p *Persister) GetSubscriptionByUser(user uint64) (*Subscription, error) {
