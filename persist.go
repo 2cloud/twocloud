@@ -96,3 +96,18 @@ func (persister Persister) GetID() (id uint64, err error) {
 type ScannableRow interface {
 	Scan(dest ...interface{}) error
 }
+
+var pgErrCodeByteKey = byte('C')
+var pgUniquenessErrCode = "23505"
+
+// Used to test when an insert fails because of the UNIQUE constraint
+func isUniqueConflictError(err error) bool {
+	if err == nil {
+		return false
+	}
+	pqErr, ok := err.(pq.PGError)
+	if ok && pqErr.Get(pgErrCodeByteKey) == pgUniquenessErrCode {
+		return true
+	}
+	return false
+}
