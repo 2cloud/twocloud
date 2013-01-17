@@ -12,6 +12,3 @@ type StripeAccount struct {
 }
 
 // Create a Stripe customer
-// Charge a Stripe customer
-// Schedule recurring payments
-// Cancel recurring payments

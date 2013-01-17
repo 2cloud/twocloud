@@ -15,10 +15,7 @@ type DwollaAccount struct {
 // Get a Dwolla OAuth redirect URL
 // Receive a Dwolla OAuth callback
 // Save a Dwolla Account with PIN
-// Charge a Dwolla account
 // Encrypt the PIN
 // Decrypt the PIN
 // Determine if the PIN is encrypted
 // Determine if the PIN is set
-// Schedule recurring payments
-// Cancel recurring payments
