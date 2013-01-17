@@ -59,7 +59,7 @@ func (subscription *Subscription) fromRow(row ScannableRow) error {
 }
 
 func (p *Persister) Charge(subscription *Subscription, amount int) error {
-	switch(subscription.FundingSource) {
+	switch subscription.FundingSource {
 	case "dwolla":
 		// TODO: retrieve dwolla funding information
 		// TODO: put message on the dwolla subscription queue
@@ -91,12 +91,12 @@ func (p *Persister) CreateSubscription(user_id, funding_id uint64, funding_src s
 	stmt := `INSERT INTO subscriptions VALUES($1, $2, $3, $4, $5, $6);`
 	_, err = p.Database.Exec(stmt, id, expires, auto_renew, funding_id, funding_src, user_id)
 	subscription := &Subscription{
-		ID: id,
-		Expires: expires,
-		AutoRenew: auto_renew,
-		FundingID: funding_id,
+		ID:            id,
+		Expires:       expires,
+		AutoRenew:     auto_renew,
+		FundingID:     funding_id,
 		FundingSource: funding_src,
-		UserID: user_id,
+		UserID:        user_id,
 	}
 	p.updateSubscriptionStatus(subscription)
 	return subscription, err

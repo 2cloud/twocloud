@@ -31,7 +31,7 @@ func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 		cred2 = tmpcred1
 	}
 	stmt := `INSERT INTO temp_credentials VALUES ($1, $2, $3, $4);`
-	_, err := p.Database.Exec(stmt, user.ID, cred1, cred2, time.Now().Add(time.Minute * 5))
+	_, err := p.Database.Exec(stmt, user.ID, cred1, cred2, time.Now().Add(time.Minute*5))
 	return [2]string{cred1, cred2}, err
 }
 
