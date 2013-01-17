@@ -9,8 +9,8 @@ var SubscriptionTableCreateStatement = `CREATE TABLE subscriptions (
 	id bigint primary key,
 	expires timestamp NOT NULL,
 	auto_renew bool default false,
-	funding_id bigint NOT NULL,
-	funding_source varchar NOT NULL,
+	funding_id bigint,
+	funding_source varchar,
 	user_id bigint NOT NULL);`
 
 type Subscription struct {
