@@ -126,11 +126,10 @@ func (p *Persister) UpdateAccountTokens(account Account, access, refresh string,
 	return err
 }
 
-/*func (r *RequestBundle) UpdateAccountData(account Account) (Account, error) {
-	// start instrumentation
-	googAccount, err := r.getGoogleAccount(account.accessToken, account.refreshToken, account.expires)
+func (p *Persister) UpdateAccountData(account Account) (Account, error) {
+	googAccount, err := getGoogleAccount(p.Config.OAuth, account.accessToken, account.refreshToken, account.expires)
 	if err != nil {
-		r.Log.Error(err.Error())
+		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	account.Email = googAccount.Email
@@ -142,15 +141,15 @@ func (p *Persister) UpdateAccountTokens(account Account, access, refresh string,
 	account.Timezone = googAccount.Timezone
 	account.Locale = googAccount.Locale
 	account.Gender = googAccount.Gender
-	err = r.storeAccount(account, true)
-	// add the repo request to the instrumentation
+
+	stmt := `UPDATE accounts SET email=$1, email_verified=$2, display_name=$3, given_name=$4, family_name=$5, picture=$6, locale=$7, gender=$8 WHERE id=$9;`
+	_, err = p.Database.Exec(stmt, account.Email, account.EmailVerified, account.DisplayName, account.GivenName, account.FamilyName, account.Picture, account.Locale, account.Gender, account.ID)
 	if err != nil {
-		r.Log.Error(err.Error())
+		p.Log.Error(err.Error())
 		return Account{}, err
 	}
-	// stop the instrumentation
 	return account, nil
-}*/
+}
 
 func (p *Persister) AssociateUserWithAccount(account Account, user uint64) error {
 	stmt := `UPDATE accounts SET user_id=$1 WHERE id=$2;`
