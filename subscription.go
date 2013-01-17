@@ -1,6 +1,7 @@
 package twocloud
 
 import (
+	"errors"
 	"time"
 )
 
@@ -51,6 +52,8 @@ func (e *SubscriptionExpiredWarning) Error() string {
 	return "Warning! Your subscription has expired." + specifics
 }
 
+var UnrecognisedFundingSourceError = errors.New("Unrecognised funding source.")
+
 func (subscription *Subscription) fromRow(row ScannableRow) error {
 	return row.Scan(&subscription.ID, &subscription.Expires, &subscription.AutoRenew, &subscription.FundingID, &subscription.FundingSource, &subscription.UserID)
 }
@@ -64,7 +67,7 @@ func (p *Persister) Charge(subscription *Subscription, amount int) error {
 		// TODO: retrieve stripe funding information
 		// TODO: put message on the stripe subscription queue
 	default:
-		// TODO: throw an unrecognised funding source error
+		return UnrecognisedFundingSourceError
 	}
 	return nil
 }
@@ -158,4 +161,16 @@ func (p *Persister) GetSubscription(id uint64) (*Subscription, error) {
 	row := p.Database.QueryRow("SELECT * FROM subscriptions WHERE id=$1", id)
 	err := subscription.fromRow(row)
 	return subscription, err
+}
+
+func (p *Persister) deleteSubscription(id uint64) error {
+	stmt := `DELETE FROM subscriptions WHERE id=$1;`
+	_, err := p.Database.Exec(stmt, id)
+	return err
+}
+
+func (p *Persister) deleteSubscriptionByUser(user uint64) error {
+	stmt := `DELETE FROM subscriptions WHERE user_id=$1;`
+	_, err := p.Database.Exec(stmt, user)
+	return err
 }
