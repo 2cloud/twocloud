@@ -77,6 +77,7 @@ var InvalidUsernameCharacterError = errors.New("An invalid character was used in
 var InvalidUsernameLengthError = errors.New("Your username must be between 3 and 20 characters long.")
 var MissingEmailError = errors.New("No email address was supplied. An email address is required.")
 var UserNotFoundError = errors.New("User was not found in the database.")
+var EmailAlreadyConfirmedError = errors.New("Email has already been confirmed.")
 
 func ValidateUsername(username string) error {
 	if len(username) < 3 || len(username) > 20 {
@@ -306,7 +307,7 @@ func (p *Persister) ResetSecret(user *User) error {
 
 func (p *Persister) VerifyEmail(user *User, code string) error {
 	if !user.EmailUnconfirmed {
-		// TODO: return an error
+		return EmailAlreadyConfirmedError
 	}
 	if user.EmailConfirmation != code {
 		return InvalidConfirmationCodeError
