@@ -333,7 +333,11 @@ func (p *Persister) StripAdmin(user *User) error {
 }
 
 func (p *Persister) DeleteUser(user User) error {
-	// TODO: delete the user from the repo
+	stmt := `DELETE FROM users WHERE id=$1;`
+	_, err := p.Database.Exec(stmt, user.ID)
+	if err != nil {
+		return err
+	}
 	// TODO: cascade that deletion to other models
 	return nil
 }
