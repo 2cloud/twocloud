@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+var CredentialsTableCreateStatement = `CREATE TABLE temp_credentials (
+	user_id bigint NOT NULL,
+	first varchar(5) NOT NULL,
+	second varchar(5) NOT NULL,
+        expires timestamp NOT NULL);`
+
 func GenerateTempCredentials() string {
 	cred := ""
 	acceptableChars := [50]string{"a", "b", "c", "d", "e", "f", "g", "h", "j", "k", "m", "n", "p", "q", "r", "s", "t", "w", "x", "y", "z", "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "M", "N", "P", "Q", "R", "S", "T", "W", "X", "Y", "Z", "2", "3", "4", "5", "6", "7", "8", "9"}
@@ -15,7 +21,6 @@ func GenerateTempCredentials() string {
 	return cred
 }
 
-// TODO: Need to store temp credentials with an expiration date
 func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 	tmpcred1 := GenerateTempCredentials()
 	tmpcred2 := GenerateTempCredentials()
@@ -25,10 +30,11 @@ func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 		cred1 = tmpcred2
 		cred2 = tmpcred1
 	}
-	return [2]string{cred1, cred2}, nil
+	stmt := `INSERT INTO temp_credentials VALUES ($1, $2, $3, $4);`
+	_, err := p.Database.Exec(stmt, user.ID, cred1, cred2, time.Now().Add(time.Minute * 5))
+	return [2]string{cred1, cred2}, err
 }
 
-// TODO: Need to query the temp credentials and check their expiration date
 func (p *Persister) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
 	firstcred := cred1
 	secondcred := cred2
@@ -36,6 +42,14 @@ func (p *Persister) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
 		firstcred = cred2
 		secondcred = cred1
 	}
-	// TODO: should return the ID of the user the credentials belong to
-	return 0, nil
+	var user uint64
+	row := p.Database.QueryRow("SELECT user_id FROM temp_credentials WHERE first=$1 and second=$2 and expires > $3", firstcred, secondcred, time.Now())
+	err := row.Scan(&user)
+	return user, err
+}
+
+func (p *Persister) ClearExpiredCredentials() error {
+	stmt := `DELETE FROM temp_credentials WHERE expires < $1;`
+	_, err := p.Database.Exec(stmt, time.Now())
+	return err
 }
