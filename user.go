@@ -2,12 +2,27 @@ package twocloud
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"io"
 	"strings"
 	"time"
 )
+
+var UserTableCreateStatement = `CREATE TABLE users (
+	id bigint primary key,
+	username varchar(20) NOT NULL UNIQUE,
+	given_name varchar,
+	family_name varchar,
+	email varchar NOT NULL,
+	email_unconfirmed bool default true,
+	email_confirmation varchar NOT NULL,
+	secret varchar NOT NULL,
+	joined timestamp default CURRENT_TIMESTAMP,
+	last_active timestamp default CURRENT_TIMESTAMP,
+	is_admin bool default false,
+	receive_newsletter bool default false);`
 
 type Name struct {
 	Given  string `json:"given,omitempty"`
@@ -27,6 +42,14 @@ type User struct {
 	IsAdmin           bool          `json:"is_admin,omitempty"`
 	Subscription      *Subscription `json:"subscription,omitempty"`
 	ReceiveNewsletter bool          `json:"receives_newsletter,omitempty"`
+}
+
+func (user *User) IsEmpty() bool {
+	return user.ID == 0
+}
+
+func (user *User) fromRow(row ScannableRow) error {
+	return row.Scan(&user.ID, &user.Username, &user.Name.Given, &user.Name.Family, &user.Email, &user.EmailUnconfirmed, &user.EmailConfirmation, &user.Secret, &user.Joined, &user.LastActive, &user.IsAdmin, &user.ReceiveNewsletter)
 }
 
 func GenerateSecret() (string, error) {
@@ -88,17 +111,19 @@ func (p *Persister) Authenticate(username, secret string) (User, error) {
 	}
 	if user.Secret != secret {
 		p.Log.Warn("Invalid auth attempt for %s's account.", username)
-		// TODO: report invalid auth attempt to stats
 		return User{}, InvalidCredentialsError
 	}
-	err = p.updateUserLastActive(user.ID)
+	err = p.updateUserLastActive(&user)
 	if err != nil {
 		p.Log.Error(err.Error())
 	}
-	// TODO: report user activity to stats
 	var subscriptionError error
 	if p.Config.UseSubscriptions {
-		// TODO: get user subscription
+		user.Subscription, err = p.GetSubscriptionByUser(user.ID)
+		if err != nil {
+			return User{}, err
+		}
+		p.updateSubscriptionStatus(user.Subscription)
 		if !user.Subscription.Active && !user.IsAdmin {
 			if !user.Subscription.InGracePeriod {
 				subscriptionError = &SubscriptionExpiredError{Expired: user.Subscription.Expires}
@@ -110,9 +135,11 @@ func (p *Persister) Authenticate(username, secret string) (User, error) {
 	return user, subscriptionError
 }
 
-// TODO: persist new value
-func (p *Persister) updateUserLastActive(id uint64) error {
-	return nil
+func (p *Persister) updateUserLastActive(user *User) error {
+	user.LastActive = time.Now()
+	stmt := `UPDATE users SET last_active=$1 WHERE id=$2;`
+	_, err := p.Database.Exec(stmt, user.LastActive, user.ID)
+	return err
 }
 
 func (p *Persister) Register(username, email, given_name, family_name string, email_unconfirmed, is_admin, newsletter bool) (User, error) {
@@ -167,24 +194,74 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 	return user, nil
 }
 
-// TODO: query for user
 func (p *Persister) GetUser(id uint64) (User, error) {
-	return User{}, nil
+	var user User
+	row := p.Database.QueryRow("SELECT * FROM users WHERE id=$1", id)
+	err := user.fromRow(row)
+	return user, err
 }
 
-// TODO: query for user
 func (p *Persister) GetUserByUsername(username string) (User, error) {
-	return User{}, nil
+	var user User
+	row := p.Database.QueryRow("SELECT * FROM users WHERE username=$1", username)
+	err := user.fromRow(row)
+	return user, err
 }
 
-// TODO: query for users
 func (p *Persister) GetUsersByActivity(count int, after, before time.Time) ([]User, error) {
-	return []User{}, nil
+	users := []User{}
+	var rows *sql.Rows
+	var err error
+	if !after.IsZero() && !before.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM users WHERE last_active > $1 and last_active < $2 ORDER BY last_active DESC LIMIT $3", after, before, count)
+	} else if !after.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM users WHERE last_active > $1 ORDER BY last_active DESC LIMIT $2", after, count)
+	} else if !before.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM users WHERE last_active < $1 ORDER BY last_active DESC LIMIT $2", before, count)
+	} else {
+		rows, err = p.Database.Query("SELECT * FROM users ORDER BY last_active DESC LIMIT $1", count)
+	}
+	if err != nil {
+		return []User{}, err
+	}
+	for rows.Next() {
+		var user User
+		err = user.fromRow(rows)
+		if err != nil {
+			return []User{}, err
+		}
+		users = append(users, user)
+	}
+	err = rows.Err()
+	return users, err
 }
 
-// TODO: query for users
 func (p *Persister) GetUsersByJoinDate(count int, after, before time.Time) ([]User, error) {
-	return []User{}, nil
+	users := []User{}
+	var rows *sql.Rows
+	var err error
+	if !after.IsZero() && !before.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM users WHERE joined > $1 and joined < $2 ORDER BY joined DESC LIMIT $3", after, before, count)
+	} else if !after.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM users WHERE joined > $1 ORDER BY joined DESC LIMIT $2", after, count)
+	} else if !before.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM users WHERE joined < $1 ORDER BY joined DESC LIMIT $2", before, count)
+	} else {
+		rows, err = p.Database.Query("SELECT * FROM users ORDER BY joined DESC LIMIT $1", count)
+	}
+	if err != nil {
+		return []User{}, err
+	}
+	for rows.Next() {
+		var user User
+		err = user.fromRow(rows)
+		if err != nil {
+			return []User{}, err
+		}
+		users = append(users, user)
+	}
+	err = rows.Err()
+	return users, err
 }
 
 func (p *Persister) UpdateUser(user User, email, given_name, family_name string, name_changed bool) error {
@@ -209,17 +286,18 @@ func (p *Persister) UpdateUser(user User, email, given_name, family_name string,
 	return nil
 }
 
-func (p *Persister) ResetSecret(user User) (User, error) {
+func (p *Persister) ResetSecret(user *User) error {
 	secret, err := GenerateSecret()
 	if err != nil {
-		return User{}, err
+		return err
 	}
 	user.Secret = secret
-	// TODO: persist new value
-	return user, nil
+	stmt := `UPDATE users SET secret=$1 WHERE id=$2;`
+	_, err = p.Database.Exec(stmt, user.Secret, user.ID)
+	return err
 }
 
-func (p *Persister) VerifyEmail(user User, code string) error {
+func (p *Persister) VerifyEmail(user *User, code string) error {
 	if !user.EmailUnconfirmed {
 		// TODO: return an error
 	}
@@ -227,20 +305,23 @@ func (p *Persister) VerifyEmail(user User, code string) error {
 		return InvalidConfirmationCodeError
 	}
 	user.EmailUnconfirmed = false
-	// TODO: persist new value
-	return nil
+	stmt := `UPDATE users SET email_unconfirmed=$1 WHERE id=$2;`
+	_, err := p.Database.Exec(stmt, false, user.ID)
+	return err
 }
 
-func (p *Persister) MakeAdmin(user User) error {
+func (p *Persister) MakeAdmin(user *User) error {
 	user.IsAdmin = true
-	// TODO: persist new value
-	return nil
+	stmt := `UPDATE users SET is_admin=$1 WHERE id=$2;`
+	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID)
+	return err
 }
 
-func (p *Persister) StripAdmin(user User) error {
+func (p *Persister) StripAdmin(user *User) error {
 	user.IsAdmin = false
-	// TODO: persist new value
-	return nil
+	stmt := `UPDATE users SET is_admin=$1 WHERE id=$2;`
+	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID)
+	return err
 }
 
 func (p *Persister) DeleteUser(user User) error {
