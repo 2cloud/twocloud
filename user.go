@@ -187,9 +187,16 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 		Subscription: &Subscription{
 			Expires: time.Now().Add(p.Config.TrialPeriod * time.Hour * 24),
 		},
+		ReceiveNewsletter: newsletter,
 	}
-	// TODO: persist user
-	// TODO: return UsernameTakenError on conflict: https://groups.google.com/forum/?fromgroups=#!topic/golang-nuts/TURZm6W5A5o
+	stmt := `INSERT INTO users VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
+	_, err = p.Database.Exec(stmt, user.ID, user.Username, user.Name.Given, user.Name.Family, user.Email, user.EmailUnconfirmed, user.EmailConfirmation, user.Secret, user.Joined, user.LastActive, user.IsAdmin, user.ReceiveNewsletter)
+	if err != nil {
+		if isUniqueConflictError(err) {
+			return User{}, UsernameTakenError
+		}
+		return User{}, err
+	}
 	p.updateSubscriptionStatus(user.Subscription)
 	return user, nil
 }
