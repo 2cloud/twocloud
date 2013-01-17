@@ -129,9 +129,11 @@ func (p *Persister) GetDevicesByUser(user User) ([]Device, error) {
 	return devices, err
 }
 
-// TODO: Query for device
 func (p *Persister) GetDevice(id uint64) (Device, error) {
-	return Device{}, nil
+	var device Device
+	row := p.Database.QueryRow("SELECT * FROM devices WHERE id=$1", id)
+	err := device.fromRow(row)
+	return device, err
 }
 
 // TODO: Insert device
