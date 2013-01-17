@@ -290,7 +290,21 @@ func (p *Persister) UpdateUser(user User, email, given_name, family_name string,
 		user.Name.Given = given_name
 		user.Name.Family = family_name
 	}
-	// TODO: persist user
+	if email != "" && name_changed {
+		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, given_name=$4, family_name=$5 WHERE id=$6;`
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ID)
+		return err
+	}
+	if email != "" {
+		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3 WHERE id=$4;`
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID)
+		return err
+	}
+	if name_changed {
+		stmt := `UPDATE users SET given_name=$1, family_name=$2 WHERE id=$3;`
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ID)
+		return err
+	}
 	return nil
 }
 
