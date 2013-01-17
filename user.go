@@ -346,6 +346,20 @@ func (p *Persister) StripAdmin(user *User) error {
 	return err
 }
 
+func (p *Persister) SubscribeToNewsletter(user *User) error {
+	user.ReceiveNewsletter = true
+	stmt := `UPDATE users SET receive_newsletter=$1 WHERE id=$2;`
+	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID)
+	return err
+}
+
+func (p *Persister) UnsubscribeFromNewsletter(user *User) error {
+	user.ReceiveNewsletter = false
+	stmt := `UPDATE users SET receive_newsletter=$1 WHERE id=$2;`
+	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID)
+	return err
+}
+
 func (p *Persister) DeleteUser(user User) error {
 	stmt := `DELETE FROM users WHERE id=$1;`
 	_, err := p.Database.Exec(stmt, user.ID)
