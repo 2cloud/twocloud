@@ -1,10 +1,24 @@
 package twocloud
 
 import (
+	"database/sql"
 	"errors"
+	"github.com/bmizerany/pq"
 	"strings"
 	"time"
 )
+
+var DeviceTableCreateStatement = `CREATE TABLE devices (
+	id bigint primary key,
+	name varchar NOT NULL,
+	client_type varchar NOT NULL,
+	last_seen timestamp default CURRENT_TIMESTAMP,
+	last_ip varchar,
+	created timestamp default CURRENT_TIMESTAMP,
+	gcm_key varchar,
+	gcm_last_used timestamp,
+	websockets_last_used timestamp,
+	user_id bigint NOT NULL);`
 
 type Device struct {
 	ID         uint64    `json:"id,omitempty"`
@@ -27,6 +41,61 @@ type Pusher struct {
 	LastUsed time.Time `json:"last_used,omitempty"`
 }
 
+func (device *Device) fromRow(row ScannableRow) error {
+	var gcm_key sql.NullString
+	var gcm_last_used, websockets_last_used pq.NullTime
+	err := row.Scan(&device.ID, &device.Name, &device.ClientType, &device.LastSeen, &device.LastIP, &device.Created, gcm_key, gcm_last_used, websockets_last_used, &device.UserID)
+	if err != nil {
+		return err
+	}
+	if gcm_key.Valid {
+		if device.Pushers == nil {
+			device.Pushers = &Pushers{
+				GCM: &Pusher{
+					Key: gcm_key.String,
+				},
+			}
+		} else if device.Pushers.GCM == nil {
+			device.Pushers.GCM = &Pusher{
+				Key: gcm_key.String,
+			}
+		} else {
+			device.Pushers.GCM.Key = gcm_key.String
+		}
+	}
+	if gcm_last_used.Valid {
+		if device.Pushers == nil {
+			device.Pushers = &Pushers{
+				GCM: &Pusher{
+					LastUsed: gcm_last_used.Time,
+				},
+			}
+		} else if device.Pushers.GCM == nil {
+			device.Pushers.GCM = &Pusher{
+				LastUsed: gcm_last_used.Time,
+			}
+		} else {
+			device.Pushers.GCM.LastUsed = gcm_last_used.Time
+		}
+	}
+	if websockets_last_used.Valid {
+		if device.Pushers == nil {
+			device.Pushers = &Pushers{
+				WebSockets: &Pusher{
+					LastUsed: websockets_last_used.Time,
+				},
+			}
+		} else if device.Pushers.WebSockets == nil {
+			device.Pushers.WebSockets = &Pusher{
+				LastUsed: websockets_last_used.Time,
+			}
+		} else {
+			device.Pushers.WebSockets.LastUsed = websockets_last_used.Time
+		}
+	}
+	return nil
+}
+
 var InvalidClientType = errors.New("Invalid client type.")
 var InvalidPusherType = errors.New("Invalid pusher type.")
 var DeviceNotFoundError = errors.New("Device not found.")
@@ -42,9 +111,22 @@ func (d *Device) ValidClientType() bool {
 	return false
 }
 
-// TODO: Query for devices
 func (p *Persister) GetDevicesByUser(user User) ([]Device, error) {
-	return []Device{}, nil
+	devices := []Device{}
+	rows, err := p.Database.Query("SELECT * FROM devices WHERE user_id=$1 ORDER BY last_seen DESC", user.ID)
+	if err != nil {
+		return []Device{}, err
+	}
+	for rows.Next() {
+		var device Device
+		err = device.fromRow(rows)
+		if err != nil {
+			return []Device{}, err
+		}
+		devices = append(devices, device)
+	}
+	err = rows.Err()
+	return devices, err
 }
 
 // TODO: Query for device
