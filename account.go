@@ -120,13 +120,13 @@ func (p *Persister) GetAccountsByUser(id uint64) ([]Account, error) {
 	return accounts, err
 }
 
-/*func (r *RequestBundle) UpdateAccountTokens(account Account, access, refresh string, expires time.Time) error {
+func (p *Persister) UpdateAccountTokens(account Account, access, refresh string, expires time.Time) error {
 	stmt := `UPDATE accounts SET access_token=$1, refresh_token=$2, token_expires=$3 WHERE id=$4;`
 	_, err := p.Database.Exec(stmt, access, refresh, expires, account.ID)
 	return err
 }
 
-func (r *RequestBundle) UpdateAccountData(account Account) (Account, error) {
+/*func (r *RequestBundle) UpdateAccountData(account Account) (Account, error) {
 	// start instrumentation
 	googAccount, err := r.getGoogleAccount(account.accessToken, account.refreshToken, account.expires)
 	if err != nil {
@@ -164,8 +164,8 @@ func (p *Persister) DeleteAccount(account Account) error {
 	return err
 }
 
-/*func (p *Persister) DeleteAccounts(user User) error {
+func (p *Persister) DeleteAccounts(user User) error {
 	stmt := `DELETE FROM accounts WHERE user_id=$1;`
 	_, err := p.Database.Exec(stmt, user.ID)
 	return err
-}*/
+}
