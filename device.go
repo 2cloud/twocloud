@@ -204,8 +204,9 @@ func (p *Persister) UpdateDeviceLastSeen(device Device, ip string) (Device, erro
 	now := time.Now()
 	device.LastSeen = now
 	device.LastIP = ip
-	// TODO: persist changes
-	return device, nil
+	stmt := `UPDATE devices SET last_seen=$1, last_ip=$2 WHERE id=$3;`
+	_, err := p.Database.Exec(stmt, device.LastSeen, device.LastIP, device.ID)
+	return device, err
 }
 
 func (p *Persister) UpdateDeviceGCMLastUsed(device Device) error {
