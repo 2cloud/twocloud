@@ -3,12 +3,14 @@ package twocloud
 import (
 	"database/sql"
 	"github.com/bmizerany/pq"
+	"net/http"
 	"strings"
 	"time"
 )
 
 type Auditor struct {
-	client *sql.DB
+	client  *sql.DB
+	Request *http.Request
 }
 
 func NewAuditor(options string) (*Auditor, error) {
@@ -24,7 +26,8 @@ func NewAuditor(options string) (*Auditor, error) {
 		return nil, err
 	}
 	return &Auditor{
-		client: conn,
+		client:  conn,
+		Request: nil,
 	}, nil
 }
 
