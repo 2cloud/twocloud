@@ -206,7 +206,7 @@ func (p *Persister) GetUser(id uint64) (User, error) {
 
 func (p *Persister) GetUserByUsername(username string) (User, error) {
 	var user User
-	row := p.Database.QueryRow("SELECT * FROM users WHERE username=$1", username)
+	row := p.Database.QueryRow("SELECT * FROM users WHERE LOWER(username)=LOWER($1)", username)
 	err := user.fromRow(row)
 	return user, err
 }
