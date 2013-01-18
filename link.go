@@ -235,18 +235,22 @@ func (p *Persister) UpdateLink(link Link, unread bool, comment string) (Link, er
 	if comment == "" {
 		link.Unread = unread
 		link.Comment = comment
-		stmt := `UPDATE links SET comment=$1 and unread=$2 WHERE id=$3`
+		stmt := `UPDATE links SET comment=$1 and unread=$2 WHERE id=$3;`
 		_, err := p.Database.Exec(stmt, link.Comment, link.Unread, link.ID)
 		return link, err
 	}
 	link.Unread = unread
-	stmt := `Update links SET unread=$1 WHERE id=$2`
+	stmt := `UPDATE links SET unread=$1 WHERE id=$2;`
 	_, err := p.Database.Exec(stmt, link.Unread, link.ID)
 	return link, err
 }
 
-// TODO: delete link
-// TODO: decrement url
 func (p *Persister) DeleteLink(link Link) error {
+	stmt := `DELETE FROM links WHERE id=$1;`
+	_, err := p.Database.Exec(stmt, link.ID)
+	if err != nil {
+		return err
+	}
+	// TODO: decrement URL
 	return nil
 }
