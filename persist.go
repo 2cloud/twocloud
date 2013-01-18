@@ -5,6 +5,7 @@ import (
 	"github.com/bmizerany/pq"
 	"github.com/noeq/noeq"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 )
@@ -15,6 +16,7 @@ type Persister struct {
 	Config    Config
 	Log       Log
 	Auditor   *Auditor
+	Request   *http.Request
 }
 
 func NewPersister(config Config) (*Persister, error) {
@@ -77,6 +79,7 @@ func NewPersister(config Config) (*Persister, error) {
 		Config:    config,
 		Log:       logger,
 		Auditor:   auditor,
+		Request:   nil,
 	}, nil
 }
 
