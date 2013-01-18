@@ -1,6 +1,8 @@
 package twocloud
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -49,8 +51,10 @@ func (account *Account) IsEmpty() bool {
 	return account.ID == 0
 }
 
+var AccountNotFoundError = errors.New("Account not found.")
+
 func (account *Account) fromRow(row ScannableRow) error {
-	return row.Scan(&account.ID, &account.Provider, &account.ForeignID, &account.Added, &account.Email, &account.EmailVerified, &account.DisplayName, &account.GivenName, &account.FamilyName, &account.Picture, &account.Locale, &account.Timezone, &account.Gender, &account.accessToken, &account.refreshToken, &account.expires, account.UserID)
+	return row.Scan(&account.ID, &account.Provider, &account.ForeignID, &account.Added, &account.Email, &account.EmailVerified, &account.DisplayName, &account.GivenName, &account.FamilyName, &account.Picture, &account.Locale, &account.Timezone, &account.Gender, &account.accessToken, &account.refreshToken, &account.expires, &account.UserID)
 }
 
 func (p *Persister) GetAccountByTokens(access, refresh string, expiration time.Time) (Account, error) {
@@ -59,7 +63,7 @@ func (p *Persister) GetAccountByTokens(access, refresh string, expiration time.T
 		return Account{}, err
 	}
 	account, err := p.getAccountByForeignID(googAccount.ID)
-	if err != nil {
+	if err != nil && err != AccountNotFoundError {
 		return Account{}, err
 	}
 	if !account.IsEmpty() {
@@ -82,6 +86,9 @@ func (p *Persister) getAccountByForeignID(foreign_id string) (Account, error) {
 	var account Account
 	row := p.Database.QueryRow("SELECT * FROM accounts WHERE foreign_id=$1", foreign_id)
 	err := account.fromRow(row)
+	if err == sql.ErrNoRows {
+		err = AccountNotFoundError
+	}
 	return account, err
 }
 
