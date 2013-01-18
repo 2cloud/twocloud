@@ -34,10 +34,6 @@ type URL struct {
 	Address     string    `json:"address,omitempty"`
 }
 
-func (url *URL) fromRow(row ScannableRow) error {
-	return row.Scan(&url.ID, &url.Address, &url.SentCounter, &url.FirstSeen)
-}
-
 type Link struct {
 	ID         uint64 `json:"id,omitempty"`
 	URL        *URL   `json:"url,omitempty"`
@@ -55,7 +51,8 @@ type Link struct {
 func (link *Link) fromRow(row ScannableRow) error {
 	var comment sql.NullString
 	var read pq.NullTime
-	err := row.Scan(&link.ID, &link.urlID, &link.Unread, &read, &link.senderID, nil, &link.receiverID, nil, &comment, &link.Sent)
+	link.URL = &URL{}
+	err := row.Scan(&link.ID, &link.urlID, &link.Unread, &read, &link.senderID, nil, &link.receiverID, nil, &comment, &link.Sent, &link.URL.ID, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
 	if err != nil {
 		return err
 	}
@@ -85,39 +82,38 @@ func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after
 	switch role {
 	case RoleEither:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender=$1 or receiver=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender=$1 or receiver=$1) and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender=$1 or receiver=$1) and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 or receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 or receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
 		}
 	case RoleSender:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
 		}
 	case RoleReceiver:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
 		}
 	}
 	if err != nil {
 		return []Link{}, err
 	}
-	urlIDs := map[uint64][]int{}
 	deviceIDs := map[uint64][]int{}
 	for rows.Next() {
 		var link Link
@@ -125,10 +121,6 @@ func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after
 		if err != nil {
 			return []Link{}, err
 		}
-		if _, ok := urlIDs[link.urlID]; !ok {
-			urlIDs[link.urlID] = []int{}
-		}
-		urlIDs[link.urlID] = append(urlIDs[link.urlID], len(links))
 		if _, ok := deviceIDs[link.senderID]; !ok {
 			deviceIDs[link.senderID] = []int{}
 		}
@@ -138,30 +130,6 @@ func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after
 		}
 		deviceIDs[link.receiverID] = append(deviceIDs[link.receiverID], len(links))
 		links = append(links, link)
-	}
-	err = rows.Err()
-	if err != nil {
-		return []Link{}, err
-	}
-	urlKeys := []string{}
-	urlValues := []interface{}{}
-	for k, _ := range urlIDs {
-		urlValues = append(urlValues, k)
-		urlKeys = append(urlKeys, "$"+strconv.Itoa(len(urlValues)))
-	}
-	rows, err = p.Database.Query("SELECT * FROM urls WHERE id IN ("+strings.Join(urlKeys, ", ")+")", urlValues...)
-	if err != nil {
-		return []Link{}, err
-	}
-	for rows.Next() {
-		var url *URL
-		err = url.fromRow(rows)
-		if err != nil {
-			return []Link{}, err
-		}
-		for _, linkPos := range urlIDs[url.ID] {
-			links[linkPos].URL = url
-		}
 	}
 	err = rows.Err()
 	if err != nil {
@@ -203,39 +171,38 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after uint6
 	switch role {
 	case RoleEither:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender_user=$1 or receiver_user=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender_user=$1 or receiver_user=$1) and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender_user=$1 or receiver_user=$1) and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 or receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 or receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
 		}
 	case RoleSender:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
 		}
 	case RoleReceiver:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
+			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
 		}
 	}
 	if err != nil {
 		return []Link{}, err
 	}
-	urlIDs := map[uint64][]int{}
 	deviceIDs := map[uint64][]int{}
 	for rows.Next() {
 		var link Link
@@ -243,10 +210,6 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after uint6
 		if err != nil {
 			return []Link{}, err
 		}
-		if _, ok := urlIDs[link.urlID]; !ok {
-			urlIDs[link.urlID] = []int{}
-		}
-		urlIDs[link.urlID] = append(urlIDs[link.urlID], len(links))
 		if _, ok := deviceIDs[link.senderID]; !ok {
 			deviceIDs[link.senderID] = []int{}
 		}
@@ -256,30 +219,6 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after uint6
 		}
 		deviceIDs[link.receiverID] = append(deviceIDs[link.receiverID], len(links))
 		links = append(links, link)
-	}
-	err = rows.Err()
-	if err != nil {
-		return []Link{}, err
-	}
-	urlKeys := []string{}
-	urlValues := []interface{}{}
-	for k, _ := range urlIDs {
-		urlValues = append(urlValues, k)
-		urlKeys = append(urlKeys, "$"+strconv.Itoa(len(urlValues)))
-	}
-	rows, err = p.Database.Query("SELECT * FROM urls WHERE id IN ("+strings.Join(urlKeys, ", ")+")", urlValues...)
-	if err != nil {
-		return []Link{}, err
-	}
-	for rows.Next() {
-		var url *URL
-		err = url.fromRow(rows)
-		if err != nil {
-			return []Link{}, err
-		}
-		for _, linkPos := range urlIDs[url.ID] {
-			links[linkPos].URL = url
-		}
 	}
 	err = rows.Err()
 	if err != nil {
