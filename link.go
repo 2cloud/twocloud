@@ -253,9 +253,29 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after uint6
 	return links, err
 }
 
-// TODO: query for link
 func (p *Persister) GetLink(id uint64) (Link, error) {
-	return Link{}, nil
+	var link Link
+	row := p.Database.QueryRow("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE id=$1", id)
+	err := link.fromRow(row)
+	if err != nil {
+		return Link{}, err
+	}
+	sender, err := p.GetDevice(link.senderID)
+	if err != nil {
+		return Link{}, err
+	}
+	var receiver Device
+	if link.senderID == link.receiverID {
+		receiver = sender
+	} else {
+		receiver, err = p.GetDevice(link.receiverID)
+		if err != nil {
+			return Link{}, err
+		}
+	}
+	link.Sender = sender
+	link.Receiver = receiver
+	return link, nil
 }
 
 func (p *Persister) AddLinks(links []Link) ([]Link, error) {
