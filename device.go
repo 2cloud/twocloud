@@ -45,7 +45,7 @@ func (device *Device) fromRow(row ScannableRow) error {
 	var gcm_key sql.NullString
 	var gcm_last_used, websockets_last_used pq.NullTime
 	var idStr, userIDStr string
-	err := row.Scan(&idStr, &device.Name, &device.ClientType, &device.LastSeen, &device.LastIP, &device.Created, gcm_key, gcm_last_used, websockets_last_used, &userIDStr)
+	err := row.Scan(&idStr, &device.Name, &device.ClientType, &device.LastSeen, &device.LastIP, &device.Created, &gcm_key, &gcm_last_used, &websockets_last_used, &userIDStr)
 	if err != nil {
 		return err
 	}
