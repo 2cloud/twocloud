@@ -133,6 +133,9 @@ func (p *Persister) GetDevice(id uint64) (Device, error) {
 	var device Device
 	row := p.Database.QueryRow("SELECT * FROM devices WHERE id=$1", id)
 	err := device.fromRow(row)
+	if err == sql.ErrNoRows {
+		err = DeviceNotFoundError
+	}
 	return device, err
 }
 
