@@ -38,6 +38,7 @@ func (b *BroadcastFilter) IsValid() bool {
 }
 
 var InvalidBroadcastFilter = errors.New("Invalid broadcast filter.")
+var NotificationNotFoundError = errors.New("Notification not found.")
 
 // TODO: query notifications
 func (p *Persister) GetNotificationsByDevice(device Device, before, after uint64, count int) ([]Notification, error) {
