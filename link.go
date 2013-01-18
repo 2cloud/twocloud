@@ -85,31 +85,31 @@ func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after
 	switch role {
 	case RoleEither:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and sent < $2 and sent > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and sent < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and sent > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender=$1 or receiver=$1) and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
 		} else {
 			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 or receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
 		}
 	case RoleSender:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and sent < $2 and sent > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and sent < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and sent > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
 		} else {
 			rows, err = p.Database.Query("SELECT * FROM links WHERE sender=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
 		}
 	case RoleReceiver:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and sent < $2 and sent > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and sent < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and sent > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID, after, count)
 		} else {
 			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID, count)
 		}
@@ -203,31 +203,31 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after uint6
 	switch role {
 	case RoleEither:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and sent < $2 and sent > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and sent < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and sent > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE (sender_user=$1 or receiver_user=$1) and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
 		} else {
 			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 or receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
 		}
 	case RoleSender:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and sent < $2 and sent > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and sent < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and sent > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
 		} else {
 			rows, err = p.Database.Query("SELECT * FROM links WHERE sender_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
 		}
 	case RoleReceiver:
 		if before > 0 && after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and sent < $2 and sent > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID, before, after, count)
 		} else if before > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and sent < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID, before, count)
 		} else if after > 0 {
-			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and sent > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
+			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID, after, count)
 		} else {
 			rows, err = p.Database.Query("SELECT * FROM links WHERE receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID, count)
 		}
