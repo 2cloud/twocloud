@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"github.com/bmizerany/pq"
 	"github.com/noeq/noeq"
-	"log"
-	"os"
 	"strings"
 )
 
@@ -57,14 +55,9 @@ func NewPersister(config Config) (*Persister, error) {
 	if logConfig.File == "" {
 		logger = StdOutLogger(level)
 	} else {
-		fileWriter, err := os.Create(logConfig.File)
+		logger, err = FileLogger(logConfig.File, level)
 		if err != nil {
 			return nil, err
-		}
-		defer fileWriter.Close()
-		logger = Log{
-			logger:   log.New(fileWriter, "2cloud", log.LstdFlags),
-			logLevel: level,
 		}
 	}
 	auditor, err := NewAuditor(config.Auditor)
@@ -78,6 +71,12 @@ func NewPersister(config Config) (*Persister, error) {
 		Log:       logger,
 		Auditor:   auditor,
 	}, nil
+}
+
+func (persister *Persister) Close() {
+	persister.Database.Close()
+	persister.Log.Close()
+	persister.Auditor.Close()
 }
 
 func (persister Persister) GetID() (id uint64, err error) {

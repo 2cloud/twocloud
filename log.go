@@ -1,6 +1,7 @@
 package twocloud
 
 import (
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -8,8 +9,10 @@ import (
 )
 
 type Log struct {
-	logger   *log.Logger
-	logLevel logLevel
+	logger     *log.Logger
+	logLevel   logLevel
+	writer     io.WriteCloser
+	needsClose bool
 }
 
 type logLevel int
@@ -19,6 +22,12 @@ const (
 	LogLevelWarn
 	LogLevelError
 )
+
+func (l *Log) Close() {
+	if l.needsClose {
+		l.writer.Close()
+	}
+}
 
 func (l *Log) Debug(format string, v ...interface{}) {
 	if l.logLevel <= LogLevelDebug {
@@ -47,14 +56,30 @@ func (l *Log) SetLogLevel(level logLevel) {
 
 func StdOutLogger(level logLevel) Log {
 	return Log{
-		logger:   log.New(os.Stdout, "2cloud", log.LstdFlags),
-		logLevel: level,
+		logger:     log.New(os.Stdout, "2cloud", log.LstdFlags),
+		logLevel:   level,
+		needsClose: false,
 	}
 }
 
 func NullLogger() Log {
 	return Log{
-		logger:   log.New(ioutil.Discard, "2cloud", log.LstdFlags),
-		logLevel: LogLevelError,
+		logger:     log.New(ioutil.Discard, "2cloud", log.LstdFlags),
+		logLevel:   LogLevelError,
+		needsClose: false,
 	}
+}
+
+func FileLogger(path string, level logLevel) (Log, error) {
+	writer, err := os.Create(path)
+	if err != nil {
+		return Log{}, err
+	}
+	logger := Log{
+		logger:     log.New(writer, "2cloud", log.LstdFlags),
+		logLevel:   level,
+		writer:     writer,
+		needsClose: true,
+	}
+	return logger, nil
 }
