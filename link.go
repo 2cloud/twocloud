@@ -4,8 +4,6 @@ import (
 	"database/sql"
 	"github.com/PuerkitoBio/purell"
 	"github.com/bmizerany/pq"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -35,24 +33,22 @@ type URL struct {
 }
 
 type Link struct {
-	ID         uint64 `json:"id,omitempty"`
-	URL        *URL   `json:"url,omitempty"`
-	urlID      uint64
-	Unread     bool      `json:"unread,omitempty"`
-	TimeRead   time.Time `json:"time_read,omitempty"`
-	Sender     Device    `json:"sender,omitempty"`
-	senderID   uint64
-	Receiver   Device `json:"receiver,omitempty"`
-	receiverID uint64
-	Comment    string    `json:"comment,omitempty"`
-	Sent       time.Time `json:"sent,omitempty"`
+	ID       uint64 `json:"id,omitempty"`
+	URL      *URL   `json:"url,omitempty"`
+	urlID    uint64
+	Unread   bool      `json:"unread,omitempty"`
+	TimeRead time.Time `json:"time_read,omitempty"`
+	Sender   uint64    `json:"sender,omitempty"`
+	Receiver uint64    `json:"receiver,omitempty"`
+	Comment  string    `json:"comment,omitempty"`
+	Sent     time.Time `json:"sent,omitempty"`
 }
 
 func (link *Link) fromRow(row ScannableRow) error {
 	var comment sql.NullString
 	var read pq.NullTime
 	link.URL = &URL{}
-	err := row.Scan(&link.ID, &link.urlID, &link.Unread, &read, &link.senderID, nil, &link.receiverID, nil, &comment, &link.Sent, &link.URL.ID, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
+	err := row.Scan(&link.ID, &link.urlID, &link.Unread, &read, &link.Sender, nil, &link.Receiver, nil, &comment, &link.Sent, &link.URL.ID, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
 	if err != nil {
 		return err
 	}
@@ -114,51 +110,13 @@ func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after
 	if err != nil {
 		return []Link{}, err
 	}
-	deviceIDs := map[uint64][]int{}
 	for rows.Next() {
 		var link Link
 		err = link.fromRow(rows)
 		if err != nil {
 			return []Link{}, err
 		}
-		if _, ok := deviceIDs[link.senderID]; !ok {
-			deviceIDs[link.senderID] = []int{}
-		}
-		deviceIDs[link.senderID] = append(deviceIDs[link.senderID], len(links))
-		if _, ok := deviceIDs[link.receiverID]; !ok {
-			deviceIDs[link.receiverID] = []int{}
-		}
-		deviceIDs[link.receiverID] = append(deviceIDs[link.receiverID], len(links))
 		links = append(links, link)
-	}
-	err = rows.Err()
-	if err != nil {
-		return []Link{}, err
-	}
-	deviceKeys := []string{}
-	deviceValues := []interface{}{}
-	for k, _ := range deviceIDs {
-		deviceValues = append(deviceValues, k)
-		deviceKeys = append(deviceKeys, "$"+strconv.Itoa(len(deviceValues)))
-	}
-	rows, err = p.Database.Query("SELECT * FROM devices WHERE id IN ("+strings.Join(deviceKeys, ", ")+")", deviceValues...)
-	if err != nil {
-		return []Link{}, err
-	}
-	for rows.Next() {
-		var device Device
-		err = device.fromRow(rows)
-		if err != nil {
-			return []Link{}, err
-		}
-		for _, linkPos := range deviceIDs[device.ID] {
-			if links[linkPos].senderID == device.ID {
-				links[linkPos].Sender = device
-			}
-			if links[linkPos].receiverID == device.ID {
-				links[linkPos].Receiver = device
-			}
-		}
 	}
 	err = rows.Err()
 	return links, err
@@ -203,51 +161,13 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after uint6
 	if err != nil {
 		return []Link{}, err
 	}
-	deviceIDs := map[uint64][]int{}
 	for rows.Next() {
 		var link Link
 		err = link.fromRow(rows)
 		if err != nil {
 			return []Link{}, err
 		}
-		if _, ok := deviceIDs[link.senderID]; !ok {
-			deviceIDs[link.senderID] = []int{}
-		}
-		deviceIDs[link.senderID] = append(deviceIDs[link.senderID], len(links))
-		if _, ok := deviceIDs[link.receiverID]; !ok {
-			deviceIDs[link.receiverID] = []int{}
-		}
-		deviceIDs[link.receiverID] = append(deviceIDs[link.receiverID], len(links))
 		links = append(links, link)
-	}
-	err = rows.Err()
-	if err != nil {
-		return []Link{}, err
-	}
-	deviceKeys := []string{}
-	deviceValues := []interface{}{}
-	for k, _ := range deviceIDs {
-		deviceValues = append(deviceValues, k)
-		deviceKeys = append(deviceKeys, "$"+strconv.Itoa(len(deviceValues)))
-	}
-	rows, err = p.Database.Query("SELECT * FROM devices WHERE id IN ("+strings.Join(deviceKeys, ", ")+")", deviceValues...)
-	if err != nil {
-		return []Link{}, err
-	}
-	for rows.Next() {
-		var device Device
-		err = device.fromRow(rows)
-		if err != nil {
-			return []Link{}, err
-		}
-		for _, linkPos := range deviceIDs[device.ID] {
-			if links[linkPos].senderID == device.ID {
-				links[linkPos].Sender = device
-			}
-			if links[linkPos].receiverID == device.ID {
-				links[linkPos].Receiver = device
-			}
-		}
 	}
 	err = rows.Err()
 	return links, err
@@ -257,25 +177,7 @@ func (p *Persister) GetLink(id uint64) (Link, error) {
 	var link Link
 	row := p.Database.QueryRow("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE id=$1", id)
 	err := link.fromRow(row)
-	if err != nil {
-		return Link{}, err
-	}
-	sender, err := p.GetDevice(link.senderID)
-	if err != nil {
-		return Link{}, err
-	}
-	var receiver Device
-	if link.senderID == link.receiverID {
-		receiver = sender
-	} else {
-		receiver, err = p.GetDevice(link.receiverID)
-		if err != nil {
-			return Link{}, err
-		}
-	}
-	link.Sender = sender
-	link.Receiver = receiver
-	return link, nil
+	return link, err
 }
 
 func (p *Persister) AddLinks(links []Link) ([]Link, error) {
@@ -318,8 +220,8 @@ func (p *Persister) AddLink(address, comment string, sender, receiver Device, un
 			Address: address,
 		},
 		Unread:   unread,
-		Sender:   sender,
-		Receiver: receiver,
+		Sender:   sender.ID,
+		Receiver: receiver.ID,
 		Comment:  comment,
 	}
 	resp, err := p.AddLinks([]Link{link})
