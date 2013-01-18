@@ -290,6 +290,7 @@ func (p *Persister) DeleteLink(link Link) error {
 	if err != nil {
 		return err
 	}
-	// TODO: decrement URL
-	return nil
+	stmt = `UPDATE urls SET sent_counter=(sent_counter - 1) WHERE ID=$1;`
+	_, err = p.Database.Exec(stmt, link.URL.ID)
+	return err
 }
