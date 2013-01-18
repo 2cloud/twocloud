@@ -5,7 +5,7 @@ import (
 )
 
 type DwollaAccount struct {
-	ID          uint64    `json:"id,omitempty"`
+	ID          ID        `json:"id,omitempty"`
 	AccessToken string    `json:"-"`
 	PIN         string    `json:"-"`
 	ScheduleID  string    `json:"schedule_id,omitempty"`

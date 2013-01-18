@@ -6,14 +6,14 @@ import (
 )
 
 type Notification struct {
-	ID              uint64    `json:"id,omitempty"`
+	ID              ID        `json:"id,omitempty"`
 	Nature          string    `json:"nature,omitempty"`
 	Body            string    `json:"body,omitempty"`
 	Unread          bool      `json:"unread,omitempty"`
-	ReadBy          uint64    `json:"read_by,omitempty"`
+	ReadBy          ID        `json:"read_by,omitempty"`
 	TimeRead        time.Time `json:"time_read,omitempty"`
 	Sent            time.Time `json:"sent,omitempty"`
-	Destination     uint64    `json:"owner,omitempty"`
+	Destination     ID        `json:"owner,omitempty"`
 	DestinationType string    `json:"owner_type,omitempty"`
 }
 
@@ -41,17 +41,17 @@ var InvalidBroadcastFilter = errors.New("Invalid broadcast filter.")
 var NotificationNotFoundError = errors.New("Notification not found.")
 
 // TODO: query notifications
-func (p *Persister) GetNotificationsByDevice(device Device, before, after uint64, count int) ([]Notification, error) {
+func (p *Persister) GetNotificationsByDevice(device Device, before, after ID, count int) ([]Notification, error) {
 	return []Notification{}, nil
 }
 
 // TODO: query notifications
-func (p *Persister) GetNotificationsByUser(user User, before, after uint64, count int) ([]Notification, error) {
+func (p *Persister) GetNotificationsByUser(user User, before, after ID, count int) ([]Notification, error) {
 	return []Notification{}, nil
 }
 
 // TODO: query for notification
-func (p *Persister) GetNotification(id uint64) (Notification, error) {
+func (p *Persister) GetNotification(id ID) (Notification, error) {
 	return Notification{}, nil
 }
 

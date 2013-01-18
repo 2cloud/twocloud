@@ -2,6 +2,9 @@ package twocloud
 
 import (
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"github.com/bmizerany/pq"
 	"github.com/noeq/noeq"
 	"strings"
@@ -13,6 +16,32 @@ type Persister struct {
 	Config    Config
 	Log       Log
 	Auditor   *Auditor
+}
+
+type ID uint64
+
+var IDBufferOverflow = errors.New("ID was more than 10 bytes long.")
+
+func (id *ID) IsZero() bool {
+	return *id == ID(0)
+}
+
+func (id *ID) String() string {
+	resp := make([]byte, binary.MaxVarintLen64)
+	binary.PutUvarint(resp, uint64(*id))
+	return hex.EncodeToString(resp)
+}
+
+func IDFromString(input string) (ID, error) {
+	bytes, err := hex.DecodeString(input)
+	if err != nil {
+		return ID(0), err
+	}
+	resp, numBytes := binary.Uvarint(bytes)
+	if numBytes <= 0 {
+		return ID(0), IDBufferOverflow
+	}
+	return ID(resp), nil
 }
 
 func NewPersister(config Config) (*Persister, error) {
@@ -79,17 +108,19 @@ func (persister *Persister) Close() {
 	persister.Auditor.Close()
 }
 
-func (persister Persister) GetID() (id uint64, err error) {
+func (persister Persister) GetID() (ID, error) {
+	var id uint64
+	var err error
 	for trys := 5; trys > 0; trys-- {
 		id, err = persister.Generator.GenOne()
 		if err != nil {
 			persister.Log.Error(err.Error())
 			continue
 		}
-		return
+		return ID(id), err
 	}
 	persister.Log.Error("No ID generated.")
-	return
+	return ID(id), err
 }
 
 type ScannableRow interface {

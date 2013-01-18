@@ -36,7 +36,7 @@ func (a *Auditor) Close() {
 }
 
 type Change struct {
-	ID        uint64      `json:"id"`
+	ID        ID          `json:"id"`
 	Table     string      `json:"table"`
 	Row       uint64      `json:"row"`
 	Column    string      `json:"column"`

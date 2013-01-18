@@ -11,7 +11,7 @@ import (
 )
 
 var UserTableCreateStatement = `CREATE TABLE users (
-	id bigint primary key,
+	id varchar primary key,
 	username varchar(20) NOT NULL UNIQUE,
 	given_name varchar,
 	family_name varchar,
@@ -30,7 +30,7 @@ type Name struct {
 }
 
 type User struct {
-	ID                uint64        `json:"id,omitempty"`
+	ID                ID            `json:"id,omitempty"`
 	Username          string        `json:"username,omitempty"`
 	Email             string        `json:"email,omitempty"`
 	EmailUnconfirmed  bool          `json:"email_unconfirmed,omitempty"`
@@ -45,11 +45,21 @@ type User struct {
 }
 
 func (user *User) IsEmpty() bool {
-	return user.ID == 0
+	return user.ID.IsZero()
 }
 
 func (user *User) fromRow(row ScannableRow) error {
-	return row.Scan(&user.ID, &user.Username, &user.Name.Given, &user.Name.Family, &user.Email, &user.EmailUnconfirmed, &user.EmailConfirmation, &user.Secret, &user.Joined, &user.LastActive, &user.IsAdmin, &user.ReceiveNewsletter)
+	var idStr string
+	err := row.Scan(&idStr, &user.Username, &user.Name.Given, &user.Name.Family, &user.Email, &user.EmailUnconfirmed, &user.EmailConfirmation, &user.Secret, &user.Joined, &user.LastActive, &user.IsAdmin, &user.ReceiveNewsletter)
+	if err != nil {
+		return err
+	}
+	id, err := IDFromString(idStr)
+	if err != nil {
+		return err
+	}
+	user.ID = id
+	return nil
 }
 
 func GenerateSecret() (string, error) {
@@ -138,7 +148,7 @@ func (p *Persister) Authenticate(username, secret string) (User, error) {
 func (p *Persister) updateUserLastActive(user *User) error {
 	user.LastActive = time.Now()
 	stmt := `UPDATE users SET last_active=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.LastActive, user.ID)
+	_, err := p.Database.Exec(stmt, user.LastActive, user.ID.String())
 	return err
 }
 
@@ -186,7 +196,7 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 		ReceiveNewsletter: newsletter,
 	}
 	stmt := `INSERT INTO users VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
-	_, err = p.Database.Exec(stmt, user.ID, user.Username, user.Name.Given, user.Name.Family, user.Email, user.EmailUnconfirmed, user.EmailConfirmation, user.Secret, user.Joined, user.LastActive, user.IsAdmin, user.ReceiveNewsletter)
+	_, err = p.Database.Exec(stmt, user.ID.String(), user.Username, user.Name.Given, user.Name.Family, user.Email, user.EmailUnconfirmed, user.EmailConfirmation, user.Secret, user.Joined, user.LastActive, user.IsAdmin, user.ReceiveNewsletter)
 	if err != nil {
 		if isUniqueConflictError(err) {
 			return User{}, UsernameTakenError
@@ -197,9 +207,9 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 	return user, nil
 }
 
-func (p *Persister) GetUser(id uint64) (User, error) {
+func (p *Persister) GetUser(id ID) (User, error) {
 	var user User
-	row := p.Database.QueryRow("SELECT * FROM users WHERE id=$1", id)
+	row := p.Database.QueryRow("SELECT * FROM users WHERE id=$1", id.String())
 	err := user.fromRow(row)
 	return user, err
 }
@@ -286,17 +296,17 @@ func (p *Persister) UpdateUser(user User, email, given_name, family_name string,
 	}
 	if email != "" && name_changed {
 		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, given_name=$4, family_name=$5 WHERE id=$6;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ID)
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ID.String())
 		return err
 	}
 	if email != "" {
 		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3 WHERE id=$4;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID)
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
 		return err
 	}
 	if name_changed {
 		stmt := `UPDATE users SET given_name=$1, family_name=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ID)
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ID.String())
 		return err
 	}
 	return nil
@@ -309,7 +319,7 @@ func (p *Persister) ResetSecret(user *User) error {
 	}
 	user.Secret = secret
 	stmt := `UPDATE users SET secret=$1 WHERE id=$2;`
-	_, err = p.Database.Exec(stmt, user.Secret, user.ID)
+	_, err = p.Database.Exec(stmt, user.Secret, user.ID.String())
 	return err
 }
 
@@ -322,41 +332,41 @@ func (p *Persister) VerifyEmail(user *User, code string) error {
 	}
 	user.EmailUnconfirmed = false
 	stmt := `UPDATE users SET email_unconfirmed=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, false, user.ID)
+	_, err := p.Database.Exec(stmt, false, user.ID.String())
 	return err
 }
 
 func (p *Persister) MakeAdmin(user *User) error {
 	user.IsAdmin = true
 	stmt := `UPDATE users SET is_admin=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID)
+	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID.String())
 	return err
 }
 
 func (p *Persister) StripAdmin(user *User) error {
 	user.IsAdmin = false
 	stmt := `UPDATE users SET is_admin=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID)
+	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID.String())
 	return err
 }
 
 func (p *Persister) SubscribeToNewsletter(user *User) error {
 	user.ReceiveNewsletter = true
 	stmt := `UPDATE users SET receive_newsletter=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID)
+	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID.String())
 	return err
 }
 
 func (p *Persister) UnsubscribeFromNewsletter(user *User) error {
 	user.ReceiveNewsletter = false
 	stmt := `UPDATE users SET receive_newsletter=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID)
+	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID.String())
 	return err
 }
 
 func (p *Persister) DeleteUser(user User) error {
 	stmt := `DELETE FROM users WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, user.ID)
+	_, err := p.Database.Exec(stmt, user.ID.String())
 	if err != nil {
 		return err
 	}

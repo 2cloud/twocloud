@@ -6,7 +6,7 @@ import (
 )
 
 var CredentialsTableCreateStatement = `CREATE TABLE temp_credentials (
-	user_id bigint NOT NULL,
+	user_id varchar NOT NULL,
 	first varchar(5) NOT NULL,
 	second varchar(5) NOT NULL,
         expires timestamp NOT NULL);`
@@ -35,16 +35,20 @@ func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 	return [2]string{cred1, cred2}, err
 }
 
-func (p *Persister) CheckTempCredentials(cred1, cred2 string) (uint64, error) {
+func (p *Persister) CheckTempCredentials(cred1, cred2 string) (ID, error) {
 	firstcred := cred1
 	secondcred := cred2
 	if firstcred > secondcred {
 		firstcred = cred2
 		secondcred = cred1
 	}
-	var user uint64
+	var userIDStr string
 	row := p.Database.QueryRow("SELECT user_id FROM temp_credentials WHERE first=$1 and second=$2 and expires > $3", firstcred, secondcred, time.Now())
-	err := row.Scan(&user)
+	err := row.Scan(&userIDStr)
+	if err != nil {
+		return ID(0), err
+	}
+	user, err := IDFromString(userIDStr)
 	return user, err
 }
 
