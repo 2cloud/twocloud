@@ -74,6 +74,7 @@ const (
 )
 
 var NilURLError = errors.New("Links must supply a URL.")
+var LinkNotFoundError = errors.New("Link not found.")
 
 func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after uint64, count int) ([]Link, error) {
 	links := []Link{}
@@ -181,6 +182,9 @@ func (p *Persister) GetLink(id uint64) (Link, error) {
 	var link Link
 	row := p.Database.QueryRow("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE id=$1", id)
 	err := link.fromRow(row)
+	if err == sql.ErrNoRows {
+		err = LinkNotFoundError
+	}
 	return link, err
 }
 
