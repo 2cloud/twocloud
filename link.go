@@ -279,7 +279,7 @@ func (p *Persister) GetLink(id uint64) (Link, error) {
 }
 
 func (p *Persister) AddLinks(links []Link) ([]Link, error) {
-	urls := []*URL{}
+	urls := map[uint64]*URL{}
 	url_counts := map[uint64]int{}
 	for pos, link := range links {
 		id, err := p.GetID()
@@ -292,9 +292,13 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 			return []Link{}, err
 		}
 		link.URL.Address = address
-		urls = append(urls, link.URL)
 		link.URL.FirstSeen = time.Now()
-		url_counts[link.URL.ID] = url_counts[link.URL.ID] + 1
+		if _, ok := urls[link.URL.ID]; !ok {
+			urls[link.URL.ID] = link.URL
+			url_counts[link.URL.ID] = 1
+		} else {
+			url_counts[link.URL.ID] = url_counts[link.URL.ID] + 1
+		}
 
 		linkID, err := p.GetID()
 		if err != nil {
