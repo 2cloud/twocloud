@@ -2,6 +2,7 @@ package twocloud
 
 import (
 	"database/sql"
+	"errors"
 	"github.com/PuerkitoBio/purell"
 	"github.com/bmizerany/pq"
 	"time"
@@ -33,22 +34,23 @@ type URL struct {
 }
 
 type Link struct {
-	ID       uint64 `json:"id,omitempty"`
-	URL      *URL   `json:"url,omitempty"`
-	urlID    uint64
-	Unread   bool      `json:"unread,omitempty"`
-	TimeRead time.Time `json:"time_read,omitempty"`
-	Sender   uint64    `json:"sender,omitempty"`
-	Receiver uint64    `json:"receiver,omitempty"`
-	Comment  string    `json:"comment,omitempty"`
-	Sent     time.Time `json:"sent,omitempty"`
+	ID           uint64    `json:"id,omitempty"`
+	URL          *URL      `json:"url,omitempty"`
+	Unread       bool      `json:"unread,omitempty"`
+	TimeRead     time.Time `json:"time_read,omitempty"`
+	Sender       uint64    `json:"sender,omitempty"`
+	SenderUser   uint64    `json:"-"`
+	Receiver     uint64    `json:"receiver,omitempty"`
+	ReceiverUser uint64    `json:"-"`
+	Comment      string    `json:"comment,omitempty"`
+	Sent         time.Time `json:"sent,omitempty"`
 }
 
 func (link *Link) fromRow(row ScannableRow) error {
 	var comment sql.NullString
 	var read pq.NullTime
 	link.URL = &URL{}
-	err := row.Scan(&link.ID, &link.urlID, &link.Unread, &read, &link.Sender, nil, &link.Receiver, nil, &comment, &link.Sent, &link.URL.ID, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
+	err := row.Scan(&link.ID, &link.URL.ID, &link.Unread, &read, &link.Sender, &link.SenderUser, &link.Receiver, &link.ReceiverUser, &comment, &link.Sent, &link.URL.ID, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
 	if err != nil {
 		return err
 	}
@@ -70,6 +72,8 @@ const (
 	RoleSender
 	RoleReceiver
 )
+
+var NilURLError = errors.New("Links must supply a URL.")
 
 func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after uint64, count int) ([]Link, error) {
 	links := []Link{}
@@ -188,6 +192,9 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 		if err != nil {
 			return []Link{}, err
 		}
+		if link.URL == nil {
+			return []Link{}, NilURLError
+		}
 		link.URL.ID = id
 		address, err := purell.NormalizeURLString(link.URL.Address, purell.FlagsSafe)
 		if err != nil {
@@ -209,8 +216,40 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 		links[pos].ID = linkID
 		links[pos].Sent = time.Now()
 	}
-	// TODO: persist/increment urls
-	// TODO: persist links
+	for _, url := range urls {
+		stmt := `INSERT INTO urls VALUES($1, $2, $3, $4);`
+		_, err := p.Database.Exec(stmt, url.ID, url.Address, url_counts[url.ID], url.FirstSeen)
+		if err != nil {
+			if isUniqueConflictError(err) {
+				stmt := `UPDATE urls SET sent_counter=(sent_counter + $1) WHERE address=$2;`
+				_, err = p.Database.Exec(stmt, url_counts[url.ID], url.Address)
+				if err != nil {
+					return []Link{}, err
+				}
+			} else {
+				return []Link{}, err
+			}
+		}
+	}
+	for _, link := range links {
+		stmt := `INSERT INTO links VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
+		var comment *string
+		var read *time.Time
+		if link.Comment == "" {
+			comment = nil
+		} else {
+			comment = &link.Comment
+		}
+		if link.TimeRead.IsZero() {
+			read = nil
+		} else {
+			read = &link.TimeRead
+		}
+		_, err := p.Database.Exec(stmt, link.ID, link.URL.ID, link.Unread, read, link.Sender, link.SenderUser, link.Receiver, link.ReceiverUser, comment, link.Sent)
+		if err != nil {
+			return []Link{}, err
+		}
+	}
 	return links, nil
 }
 
