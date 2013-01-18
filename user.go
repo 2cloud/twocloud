@@ -118,6 +118,9 @@ func ValidateUsername(username string) error {
 func (p *Persister) Authenticate(username, secret string) (User, error) {
 	user, err := p.GetUserByUsername(username)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			err = UserNotFoundError
+		}
 		return User{}, err
 	}
 	if user.Secret != secret {
