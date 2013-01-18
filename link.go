@@ -231,9 +231,18 @@ func (p *Persister) AddLink(address, comment string, sender, receiver Device, un
 	return resp[0], nil
 }
 
-// TODO: persist changes
 func (p *Persister) UpdateLink(link Link, unread bool, comment string) (Link, error) {
-	return Link{}, nil
+	if comment == "" {
+		link.Unread = unread
+		link.Comment = comment
+		stmt := `UPDATE links SET comment=$1 and unread=$2 WHERE id=$3`
+		_, err := p.Database.Exec(stmt, link.Comment, link.Unread, link.ID)
+		return link, err
+	}
+	link.Unread = unread
+	stmt := `Update links SET unread=$1 WHERE id=$2`
+	_, err := p.Database.Exec(stmt, link.Unread, link.ID)
+	return link, err
 }
 
 // TODO: delete link
