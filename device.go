@@ -235,7 +235,12 @@ func (p *Persister) updateDevicePusherLastUsed(device Device, pusher string) err
 	return nil
 }
 
-// TODO: delete device
 func (p *Persister) DeleteDevice(device Device) error {
+	stmt := `DELETE FROM devices WHERE id=$1;`
+	_, err := p.Database.Exec(stmt, device.ID)
+	if err != nil {
+		return err
+	}
+	// TODO: cascade deletion to other models
 	return nil
 }
