@@ -1,6 +1,7 @@
 package twocloud
 
 import (
+	"database/sql"
 	"errors"
 	"time"
 )
@@ -133,7 +134,17 @@ func (p *Persister) CancelRenewingSubscription(subscription *Subscription) error
 
 func (p *Persister) GetSubscriptionsByExpiration(after, before time.Time, count int) ([]*Subscription, error) {
 	subscriptions := []*Subscription{}
-	rows, err := p.Database.Query("SELECT * FROM subscriptions WHERE expires > $1 and expires < $2 LIMIT $3", after, before, count)
+	var rows *sql.Rows
+	var err error
+	if !after.IsZero() && !before.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM subscriptions WHERE expires > $1 and expires < $2 ORDER BY expires DESC LIMIT $3", after, before, count)
+	} else if !after.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM subscriptions WHERE expires > $1 ORDER BY expires DESC LIMIT $2", after, count)
+	} else if !before.IsZero() {
+		rows, err = p.Database.Query("SELECT * FROM subscriptions WHERE expires < $1 ORDER BY expires DESC LIMIT $2", before, count)
+	} else {
+		rows, err = p.Database.Query("SELECT * FROM subscriptions ORDER BY expires DESC LIMIT $1", count)
+	}
 	if err != nil {
 		return []*Subscription{}, err
 	}
