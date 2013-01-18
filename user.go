@@ -111,12 +111,11 @@ func (p *Persister) Authenticate(username, secret string) (User, error) {
 		return User{}, err
 	}
 	if user.Secret != secret {
-		p.Log.Warn("Invalid auth attempt for %s's account.", username)
 		return User{}, InvalidCredentialsError
 	}
 	err = p.updateUserLastActive(&user)
 	if err != nil {
-		p.Log.Error(err.Error())
+		return User{}, err
 	}
 	var subscriptionError error
 	if p.Config.UseSubscriptions {
@@ -150,7 +149,6 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 	family_name = strings.TrimSpace(family_name)
 	err := ValidateUsername(username)
 	if err != nil {
-		p.Log.Error(err.Error())
 		return User{}, err
 	}
 	if email == "" {
@@ -158,17 +156,14 @@ func (p *Persister) Register(username, email, given_name, family_name string, em
 	}
 	id, err := p.GetID()
 	if err != nil {
-		p.Log.Error(err.Error())
 		return User{}, err
 	}
 	secret, err := GenerateSecret()
 	if err != nil {
-		p.Log.Error(err.Error())
 		return User{}, err
 	}
 	code, err := GenerateEmailConfirmation()
 	if err != nil {
-		p.Log.Error(err.Error())
 		return User{}, err
 	}
 	user := User{
@@ -279,7 +274,6 @@ func (p *Persister) UpdateUser(user User, email, given_name, family_name string,
 	if email != "" {
 		code, err := GenerateEmailConfirmation()
 		if err != nil {
-			p.Log.Error(err.Error())
 			return err
 		}
 		user.EmailConfirmation = code

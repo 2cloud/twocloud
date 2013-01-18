@@ -56,12 +56,10 @@ func (account *Account) fromRow(row ScannableRow) error {
 func (p *Persister) GetAccountByTokens(access, refresh string, expiration time.Time) (Account, error) {
 	googAccount, err := getGoogleAccount(p.Config.OAuth, access, refresh, expiration)
 	if err != nil {
-		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	account, err := p.getAccountByForeignID(googAccount.ID)
 	if err != nil {
-		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	if !account.IsEmpty() {
@@ -70,13 +68,11 @@ func (p *Persister) GetAccountByTokens(access, refresh string, expiration time.T
 	account = googAccount.toAccount(access, refresh, expiration)
 	id, err := p.GetID()
 	if err != nil {
-		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	account.ID = id
 	err = p.createAccount(account)
 	if err != nil {
-		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	return account, nil
@@ -129,7 +125,6 @@ func (p *Persister) UpdateAccountTokens(account Account, access, refresh string,
 func (p *Persister) UpdateAccountData(account Account) (Account, error) {
 	googAccount, err := getGoogleAccount(p.Config.OAuth, account.accessToken, account.refreshToken, account.expires)
 	if err != nil {
-		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	account.Email = googAccount.Email
@@ -145,7 +140,6 @@ func (p *Persister) UpdateAccountData(account Account) (Account, error) {
 	stmt := `UPDATE accounts SET email=$1, email_verified=$2, display_name=$3, given_name=$4, family_name=$5, picture=$6, locale=$7, gender=$8 WHERE id=$9;`
 	_, err = p.Database.Exec(stmt, account.Email, account.EmailVerified, account.DisplayName, account.GivenName, account.FamilyName, account.Picture, account.Locale, account.Gender, account.ID)
 	if err != nil {
-		p.Log.Error(err.Error())
 		return Account{}, err
 	}
 	return account, nil

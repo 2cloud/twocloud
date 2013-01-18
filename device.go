@@ -193,7 +193,6 @@ func (p *Persister) UpdateDevice(device Device, name, client_type, gcm_key strin
 		}
 	}
 	if !device.ValidClientType() {
-		p.Log.Debug("Invalid client type: %s", device.ClientType)
 		return Device{}, InvalidClientType
 	}
 	if gcm_key != "" && client_type != "" && name != "" {
