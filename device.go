@@ -111,7 +111,7 @@ var InvalidClientType = errors.New("Invalid client type.")
 var InvalidPusherType = errors.New("Invalid pusher type.")
 var DeviceNotFoundError = errors.New("Device not found.")
 
-var validClientTypes = []string{"android_phone", "android_tablet", "chromebook", "macbook_chrome", "windows_chrome"}
+var validClientTypes = []string{"android_phone", "android_tablet", "android_tablet_small", "chromebook", "macbook_chrome", "windows_chrome"}
 
 func (d *Device) ValidClientType() bool {
 	for _, clientType := range validClientTypes {
