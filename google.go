@@ -27,7 +27,7 @@ type googleError struct {
 	Message    string `json:"message,omitempty"`
 }
 
-func getGoogleAccount(conf OAuthClient, access, refresh string, expiration time.Time) (googleAccount, error) {
+func getGoogleAccount(conf OAuthClient, access, refresh *string, expiration time.Time) (googleAccount, error) {
 	config := &oauth.Config{
 		ClientId:     conf.ClientID,
 		ClientSecret: conf.ClientSecret,
@@ -37,10 +37,10 @@ func getGoogleAccount(conf OAuthClient, access, refresh string, expiration time.
 		RedirectURL:  conf.CallbackURL,
 	}
 	token := &oauth.Token{
-		AccessToken: access,
+		AccessToken: *access,
 	}
-	if refresh != "" {
-		token.RefreshToken = refresh
+	if refresh != nil {
+		token.RefreshToken = *refresh
 	}
 	if !expiration.IsZero() {
 		token.Expiry = expiration
@@ -76,7 +76,7 @@ func getGoogleAccount(conf OAuthClient, access, refresh string, expiration time.
 	return googAccount, nil
 }
 
-func (googAccount *googleAccount) toAccount(access, refresh string, expiration time.Time) Account {
+func (googAccount *googleAccount) toAccount(access, refresh *string, expiration time.Time) Account {
 	return Account{
 		Added:         time.Now(),
 		Provider:      "google",

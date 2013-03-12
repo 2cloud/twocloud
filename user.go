@@ -25,8 +25,8 @@ var UserTableCreateStatement = `CREATE TABLE users (
 	receive_newsletter bool default false);`
 
 type Name struct {
-	Given  string `json:"given,omitempty"`
-	Family string `json:"family,omitempty"`
+	Given  *string `json:"given,omitempty"`
+	Family *string `json:"family,omitempty"`
 }
 
 type User struct {
@@ -155,11 +155,17 @@ func (p *Persister) updateUserLastActive(user *User) error {
 	return err
 }
 
-func (p *Persister) Register(username, email, given_name, family_name string, email_unconfirmed, is_admin, newsletter bool) (User, error) {
+func (p *Persister) Register(username, email string, given_name, family_name *string, email_unconfirmed, is_admin, newsletter bool) (User, error) {
 	email = strings.TrimSpace(email)
 	username = strings.TrimSpace(username)
-	given_name = strings.TrimSpace(given_name)
-	family_name = strings.TrimSpace(family_name)
+	if given_name != nil {
+		tmpGivenName := strings.TrimSpace(*given_name)
+		given_name = &tmpGivenName
+	}
+	if family_name != nil {
+		tmpFamilyName := strings.TrimSpace(*family_name)
+		family_name = &tmpFamilyName
+	}
 	err := ValidateUsername(username)
 	if err != nil {
 		return User{}, err
@@ -280,36 +286,98 @@ func (p *Persister) GetUsersByJoinDate(count int, after, before time.Time) ([]Us
 	return users, err
 }
 
-func (p *Persister) UpdateUser(user User, email, given_name, family_name string, name_changed bool) error {
-	email = strings.TrimSpace(email)
-	given_name = strings.TrimSpace(given_name)
-	family_name = strings.TrimSpace(family_name)
-	if email != "" {
-		code, err := GenerateEmailConfirmation()
-		if err != nil {
-			return err
+func (p *Persister) UpdateUser(user *User, email, given_name, family_name *string, newsletter *bool) error {
+	if email != nil {
+		newEmail := strings.TrimSpace(*email)
+		if newEmail != "" {
+			code, err := GenerateEmailConfirmation()
+			if err != nil {
+				return err
+			}
+			user.EmailConfirmation = code
+			user.EmailUnconfirmed = true
+			user.Email = newEmail
 		}
-		user.EmailConfirmation = code
-		user.EmailUnconfirmed = true
-		user.Email = email
 	}
-	if name_changed {
-		user.Name.Given = given_name
-		user.Name.Family = family_name
+	if given_name != nil {
+		tmpGivenName := strings.TrimSpace(*given_name)
+		user.Name.Given = &tmpGivenName
 	}
-	if email != "" && name_changed {
+	if family_name != nil {
+		tmpFamilyName := strings.TrimSpace(*family_name)
+		user.Name.Family = &tmpFamilyName
+	}
+	if newsletter != nil {
+		user.ReceiveNewsletter = *newsletter
+	}
+	if email != nil && given_name != nil && family_name != nil && newsletter != nil {
+		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, given_name=$4, family_name=$5, receive_newsletter=$6 WHERE id=$7;`
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if email != nil && given_name != nil && family_name != nil {
 		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, given_name=$4, family_name=$5 WHERE id=$6;`
 		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ID.String())
 		return err
 	}
-	if email != "" {
+	if email != nil && family_name != nil && newsletter != nil {
+		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, family_name=$4, receive_newsletter=$5 WHERE id=$6;`
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if given_name != nil && family_name != nil && newsletter != nil {
+		stmt := `UPDATE users SET given_name=$1, family_name=$2, receives_newsletter=$3 WHERE id=$4;`
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if given_name != nil && family_name != nil {
+		stmt := `UPDATE users SET given_name=$1, family_name=$2 WHERE id=$3;`
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if given_name != nil && email != nil {
+		stmt := `UPDATE users SET given_name=$1, email=$2, email_confirmation=$3, email_unconfirmed=$4 WHERE id=$5;`
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
+		return err
+	}
+	if given_name != nil && newsletter != nil {
+		stmt := `UPDATE users SET given_name=$1, receives_newsletter=$2 WHERE id=$3;`
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if family_name != nil && email != nil {
+		stmt := `UPDATE users SET family_name=$1, email=$2, email_confirmation=$3, email_unconfirmed=$4 WHERE id=$5;`
+		_, err := p.Database.Exec(stmt, user.Name.Family, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
+		return err
+	}
+	if family_name != nil && newsletter != nil {
+		stmt := `UPDATE users SET family_name=$1, receives_newsletter=$2 WHERE id=$3;`
+		_, err := p.Database.Exec(stmt, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if email != nil && newsletter != nil {
+		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, receives_newsletter=$4 WHERE id=$5;`
+		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ReceiveNewsletter, user.ID.String())
+		return err
+	}
+	if given_name != nil {
+		stmt := `UPDATE users SET given_name=$1 WHERE id=$2;`
+		_, err := p.Database.Exec(stmt, user.Name.Given, user.ID.String())
+		return err
+	}
+	if family_name != nil {
+		stmt := `UPDATE users SET family_name=$1 WHERE id=$2;`
+		_, err := p.Database.Exec(stmt, user.Name.Family, user.ID.String())
+		return err
+	}
+	if email != nil {
 		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3 WHERE id=$4;`
 		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
 		return err
 	}
-	if name_changed {
-		stmt := `UPDATE users SET given_name=$1, family_name=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ID.String())
+	if newsletter != nil {
+		stmt := `UPDATE users SET receives_newsletter=$1 WHERE id=$2;`
+		_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID.String())
 		return err
 	}
 	return nil

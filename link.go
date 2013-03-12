@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/PuerkitoBio/purell"
-	"github.com/bmizerany/pq"
+	"github.com/lib/pq"
 	"time"
 )
 
@@ -56,16 +56,15 @@ type Link struct {
 	SenderUser   ID        `json:"-"`
 	Receiver     ID        `json:"receiver,omitempty"`
 	ReceiverUser ID        `json:"-"`
-	Comment      string    `json:"comment,omitempty"`
+	Comment      *string   `json:"comment,omitempty"`
 	Sent         time.Time `json:"sent,omitempty"`
 }
 
 func (link *Link) fromRow(row ScannableRow) error {
-	var comment sql.NullString
 	var read pq.NullTime
 	var idStr, urlIDStr, senderIDStr, senderUserIDStr, receiverIDStr, receiverUserIDStr string
 	link.URL = &URL{}
-	err := row.Scan(&idStr, &urlIDStr, &link.Unread, &read, &senderIDStr, &senderUserIDStr, &receiverIDStr, &receiverUserIDStr, &comment, &link.Sent, &urlIDStr, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
+	err := row.Scan(&idStr, &urlIDStr, &link.Unread, &read, &senderIDStr, &senderUserIDStr, &receiverIDStr, &receiverUserIDStr, &link.Comment, &link.Sent, &urlIDStr, &link.URL.Address, &link.URL.SentCounter, &link.URL.FirstSeen)
 	if err != nil {
 		return err
 	}
@@ -99,11 +98,6 @@ func (link *Link) fromRow(row ScannableRow) error {
 		return err
 	}
 	link.ReceiverUser = receiverUserID
-	if comment.Valid {
-		link.Comment = comment.String
-	} else {
-		link.Comment = ""
-	}
 	if read.Valid {
 		link.TimeRead = read.Time
 	}
@@ -295,19 +289,13 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 	}
 	for _, link := range links {
 		stmt := `INSERT INTO links VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
-		var comment *string
 		var read *time.Time
-		if link.Comment == "" {
-			comment = nil
-		} else {
-			comment = &link.Comment
-		}
 		if link.TimeRead.IsZero() {
 			read = nil
 		} else {
 			read = &link.TimeRead
 		}
-		_, err := p.Database.Exec(stmt, link.ID.String(), link.URL.ID.String(), link.Unread, read, link.Sender.String(), link.SenderUser.String(), link.Receiver.String(), link.ReceiverUser.String(), comment, link.Sent)
+		_, err := p.Database.Exec(stmt, link.ID.String(), link.URL.ID.String(), link.Unread, read, link.Sender.String(), link.SenderUser.String(), link.Receiver.String(), link.ReceiverUser.String(), link.Comment, link.Sent)
 		if err != nil {
 			return []Link{}, err
 		}
@@ -315,7 +303,7 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 	return links, nil
 }
 
-func (p *Persister) AddLink(address, comment string, sender, receiver Device, unread bool) (Link, error) {
+func (p *Persister) AddLink(address string, comment *string, sender, receiver Device, unread bool) (Link, error) {
 	link := Link{
 		URL: &URL{
 			Address: address,
@@ -332,18 +320,25 @@ func (p *Persister) AddLink(address, comment string, sender, receiver Device, un
 	return resp[0], nil
 }
 
-func (p *Persister) UpdateLink(link Link, unread bool, comment string) (Link, error) {
-	if comment == "" {
-		link.Unread = unread
+func (p *Persister) UpdateLink(link Link, unread *bool, comment *string) (Link, error) {
+	if comment != nil && unread != nil {
+		link.Unread = *unread
 		link.Comment = comment
 		stmt := `UPDATE links SET comment=$1 and unread=$2 WHERE id=$3;`
 		_, err := p.Database.Exec(stmt, link.Comment, link.Unread, link.ID.String())
 		return link, err
+	} else if comment != nil {
+		link.Comment = comment
+		stmt := `UPDATE links SET comment=$1 WHERE id=$2;`
+		_, err := p.Database.Exec(stmt, link.Comment, link.ID.String())
+		return link, err
+	} else if unread != nil {
+		link.Unread = *unread
+		stmt := `UPDATE links SET unread=$1 WHERE id=$2;`
+		_, err := p.Database.Exec(stmt, link.Unread, link.ID.String())
+		return link, err
 	}
-	link.Unread = unread
-	stmt := `UPDATE links SET unread=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, link.Unread, link.ID.String())
-	return link, err
+	return Link{}, nil
 }
 
 func (p *Persister) DeleteLink(link Link) error {

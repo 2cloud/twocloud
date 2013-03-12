@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"github.com/bmizerany/pq"
+	"github.com/lib/pq"
 	"github.com/noeq/noeq"
+	"log"
+	"log/syslog"
 	"strings"
 )
 
@@ -15,7 +17,6 @@ type Persister struct {
 	Database  *sql.DB
 	Config    Config
 	Log       Log
-	Auditor   *Auditor
 }
 
 type ID uint64
@@ -83,29 +84,42 @@ func NewPersister(config Config) (*Persister, error) {
 	}
 	if logConfig.File == "" {
 		logger = StdOutLogger(level)
+	} else if logConfig.File == "syslog" {
+		var priority syslog.Priority
+		switch level {
+		case LogLevelDebug:
+			priority = syslog.LOG_DEBUG
+		case LogLevelWarn:
+			priority = syslog.LOG_WARNING
+		case LogLevelError:
+			priority = syslog.LOG_ERR
+		}
+		slog, err := syslog.NewLogger(priority, log.LstdFlags)
+		if err != nil {
+			return nil, err
+		}
+		logger = Log{
+			logger:     slog,
+			logLevel:   level,
+			needsClose: false,
+		}
 	} else {
 		logger, err = FileLogger(logConfig.File, level)
 		if err != nil {
 			return nil, err
 		}
 	}
-	auditor, err := NewAuditor(config.Auditor)
-	if err != nil {
-		return nil, err
-	}
 	return &Persister{
 		Generator: generator,
 		Database:  db,
 		Config:    config,
 		Log:       logger,
-		Auditor:   auditor,
 	}, nil
 }
 
 func (persister *Persister) Close() {
 	persister.Database.Close()
 	persister.Log.Close()
-	persister.Auditor.Close()
 }
 
 func (persister Persister) GetID() (ID, error) {

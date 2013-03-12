@@ -181,6 +181,7 @@ func (p *Persister) GetSubscriptionsByExpiration(after, before time.Time, count 
 		if err != nil {
 			return []*Subscription{}, err
 		}
+		p.updateSubscriptionStatus(subscription)
 		subscriptions = append(subscriptions, subscription)
 	}
 	err = rows.Err()
@@ -191,14 +192,22 @@ func (p *Persister) GetSubscriptionByUser(user ID) (*Subscription, error) {
 	subscription := &Subscription{}
 	row := p.Database.QueryRow("SELECT * FROM subscriptions WHERE user_id=$1", user.String())
 	err := subscription.fromRow(row)
-	return subscription, err
+	if err != nil {
+		return nil, err
+	}
+	p.updateSubscriptionStatus(subscription)
+	return subscription, nil
 }
 
 func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 	subscription := &Subscription{}
 	row := p.Database.QueryRow("SELECT * FROM subscriptions WHERE id=$1", id.String())
 	err := subscription.fromRow(row)
-	return subscription, err
+	if err != nil {
+		return nil, err
+	}
+	p.updateSubscriptionStatus(subscription)
+	return subscription, nil
 }
 
 func (p *Persister) deleteSubscription(id ID) error {

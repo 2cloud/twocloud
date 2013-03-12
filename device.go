@@ -3,7 +3,7 @@ package twocloud
 import (
 	"database/sql"
 	"errors"
-	"github.com/bmizerany/pq"
+	"github.com/lib/pq"
 	"strings"
 	"time"
 )
@@ -150,95 +150,95 @@ func (p *Persister) GetDevice(id ID) (Device, error) {
 	return device, err
 }
 
-func (p *Persister) AddDevice(name, client_type, ip, gcm_key string, user User) (Device, error) {
+func (p *Persister) AddDevice(name, clientType, ip string, gcmKey *string, user User) (Device, error) {
 	id, err := p.GetID()
 	if err != nil {
 		return Device{}, err
 	}
 	name = strings.TrimSpace(name)
-	client_type = strings.TrimSpace(client_type)
-	gcm_key = strings.TrimSpace(gcm_key)
+	clientType = strings.TrimSpace(clientType)
 	device := Device{
 		ID:         id,
 		Name:       name,
 		LastSeen:   time.Now(),
 		LastIP:     ip,
-		ClientType: client_type,
+		ClientType: clientType,
 		UserID:     user.ID,
 		Created:    time.Now(),
-		Pushers: &Pushers{
+	}
+	if gcmKey != nil {
+		device.Pushers = &Pushers{
 			GCM: &Pusher{
-				Key: gcm_key,
+				Key: strings.TrimSpace(*gcmKey),
 			},
-			WebSockets: &Pusher{},
-		},
-	}
-	if !device.ValidClientType() {
-		return Device{}, InvalidClientType
-	}
-	stmt := `INSERT INTO devices VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
-	_, err = p.Database.Exec(stmt, device.ID.String(), device.Name, device.ClientType, device.LastSeen, device.LastIP, device.Created, device.Pushers.GCM.Key, nil, nil, device.UserID.String())
-	return device, err
-}
-
-func (p *Persister) UpdateDevice(device Device, name, client_type, gcm_key string) (Device, error) {
-	name = strings.TrimSpace(name)
-	if name != "" {
-		device.Name = name
-	}
-	client_type = strings.TrimSpace(client_type)
-	if client_type != "" {
-		device.ClientType = client_type
-	}
-	gcm_key = strings.TrimSpace(gcm_key)
-	if gcm_key != "" {
-		if device.Pushers == nil {
-			device.Pushers = &Pushers{
-				GCM: &Pusher{
-					Key: gcm_key,
-				},
-			}
-		} else if device.Pushers.GCM == nil {
-			device.Pushers.GCM = &Pusher{
-				Key: gcm_key,
-			}
-		} else {
-			device.Pushers.GCM.Key = gcm_key
 		}
 	}
 	if !device.ValidClientType() {
 		return Device{}, InvalidClientType
 	}
-	if gcm_key != "" && client_type != "" && name != "" {
+	stmt := `INSERT INTO devices VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
+	_, err = p.Database.Exec(stmt, device.ID.String(), device.Name, device.ClientType, device.LastSeen, device.LastIP, device.Created, gcmKey, nil, nil, device.UserID.String())
+	return device, err
+}
+
+func (p *Persister) UpdateDevice(device *Device, name, clientType, gcmKey *string) error {
+	if name != nil {
+		device.Name = strings.TrimSpace(*name)
+		name = &device.Name
+	}
+	if clientType != nil {
+		device.ClientType = strings.TrimSpace(strings.ToLower(*clientType))
+		clientType = &device.ClientType
+	}
+	if gcmKey != nil {
+		if device.Pushers == nil {
+			device.Pushers = &Pushers{
+				GCM: &Pusher{
+					Key: strings.TrimSpace(*gcmKey),
+				},
+			}
+		} else if device.Pushers.GCM == nil {
+			device.Pushers.GCM = &Pusher{
+				Key: strings.TrimSpace(*gcmKey),
+			}
+		} else {
+			device.Pushers.GCM.Key = strings.TrimSpace(*gcmKey)
+		}
+		gcmKey = &device.Pushers.GCM.Key
+	}
+	if !device.ValidClientType() {
+		return InvalidClientType
+	}
+	if gcmKey != nil && clientType != nil && name != nil {
 		stmt := `UPDATE devices SET name=$1, client_type=$2, gcm_key=$3 WHERE id=$4;`
 		_, err := p.Database.Exec(stmt, device.Name, device.ClientType, device.Pushers.GCM.Key, device.ID.String())
-		return device, err
-	} else if gcm_key != "" && client_type != "" {
+		return err
+	} else if gcmKey != nil && clientType != nil {
 		stmt := `UPDATE devices SET client_type=$1, gcm_key=$2 WHERE id=$3;`
 		_, err := p.Database.Exec(stmt, device.ClientType, device.Pushers.GCM.Key, device.ID.String())
-		return device, err
-	} else if gcm_key != "" && name != "" {
+		return err
+	} else if gcmKey != nil && name != nil {
 		stmt := `UPDATE devices SET name=$1, gcm_key=$2 WHERE id=$3;`
 		_, err := p.Database.Exec(stmt, device.Name, device.Pushers.GCM.Key, device.ID.String())
-		return device, err
-	} else if name != "" && client_type != "" {
+		return err
+	} else if name != nil && clientType != nil {
 		stmt := `UPDATE devices SET name=$1, client_type=$2, WHERE id=$3;`
 		_, err := p.Database.Exec(stmt, device.Name, device.ClientType, device.ID.String())
-		return device, err
-	} else if name != "" {
+		return err
+	} else if name != nil {
 		stmt := `UPDATE devices SET name=$1 WHERE id=$2;`
 		_, err := p.Database.Exec(stmt, device.Name, device.ID.String())
-		return device, err
-	} else if client_type != "" {
+		return err
+	} else if clientType != nil {
 		stmt := `UPDATE devices SET client_type=$1 WHERE id=$2;`
 		_, err := p.Database.Exec(stmt, device.ClientType, device.ID.String())
-		return device, err
-	} else if gcm_key != "" {
+		return err
+	} else if gcmKey != nil {
 		stmt := `UPDATE devices SET gcm_key=$1 WHERE id=$2;`
 		_, err := p.Database.Exec(stmt, device.Pushers.GCM.Key, device.ID.String())
-		return device, err
+		return err
 	}
-	return device, nil
+	return nil
 }
 
 func (p *Persister) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {

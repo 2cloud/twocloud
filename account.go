@@ -42,8 +42,8 @@ type Account struct {
 	Gender        string `json:"gender,omitempty"`
 	// private info that is stored, never shared
 	UserID       ID `json:"-"`
-	accessToken  string
-	refreshToken string
+	accessToken  *string
+	refreshToken *string
 	expires      time.Time
 }
 
@@ -76,7 +76,7 @@ func (account *Account) fromRow(row ScannableRow) error {
 	return nil
 }
 
-func (p *Persister) GetAccountByTokens(access, refresh string, expiration time.Time) (Account, error) {
+func (p *Persister) GetAccountByTokens(access, refresh *string, expiration time.Time) (Account, error) {
 	googAccount, err := getGoogleAccount(p.Config.OAuth, access, refresh, expiration)
 	if err != nil {
 		return Account{}, err
@@ -142,9 +142,30 @@ func (p *Persister) GetAccountsByUser(id ID) ([]Account, error) {
 	return accounts, err
 }
 
-func (p *Persister) UpdateAccountTokens(account Account, access, refresh string, expires time.Time) error {
-	stmt := `UPDATE accounts SET access_token=$1, refresh_token=$2, token_expires=$3 WHERE id=$4;`
-	_, err := p.Database.Exec(stmt, access, refresh, expires, account.ID.String())
+func (p *Persister) UpdateAccountTokens(account Account, access, refresh *string, expires time.Time) error {
+	var err error
+	if access != nil && refresh != nil && !expires.IsZero() {
+		stmt := `UPDATE accounts SET access_token=$1, refresh_token=$2, token_expires=$3 WHERE id=$4;`
+		_, err = p.Database.Exec(stmt, access, refresh, expires, account.ID.String())
+	} else if access != nil && refresh != nil {
+		stmt := `UPDATE accounts SET access_token=$1, refresh_token=$2 WHERE id=$3;`
+		_, err = p.Database.Exec(stmt, access, refresh, account.ID.String())
+	} else if access != nil && !expires.IsZero() {
+		stmt := `UPDATE accounts SET access_token=$1, token_expires=$2 WHERE id=$3;`
+		_, err = p.Database.Exec(stmt, access, expires, account.ID.String())
+	} else if refresh != nil && !expires.IsZero() {
+		stmt := `UPDATE accounts SET refresh_token=$1, token_expires=$2 WHERE id=$3;`
+		_, err = p.Database.Exec(stmt, refresh, expires, account.ID.String())
+	} else if access != nil {
+		stmt := `UPDATE accounts SET access_token=$1 WHERE id=$2;`
+		_, err = p.Database.Exec(stmt, access, account.ID.String())
+	} else if refresh != nil {
+		stmt := `UPDATE accounts SET refresh_token=$2 WHERE id=$2;`
+		_, err = p.Database.Exec(stmt, refresh, account.ID.String())
+	} else if !expires.IsZero() {
+		stmt := `UPDATE accounts SET token_expires=$3 WHERE id=$2;`
+		_, err = p.Database.Exec(stmt, expires, account.ID.String())
+	}
 	return err
 }
 

@@ -26,7 +26,7 @@ func GetGoogleAuthURL(conf OAuthClient, state string) string {
 	return config.AuthCodeURL(state)
 }
 
-func GetGoogleAccessToken(conf OAuthClient, auth_code string) (access string, refresh string, expiration time.Time, err error) {
+func GetGoogleAccessToken(conf OAuthClient, auth_code string) (access, refresh *string, expiration time.Time, err error) {
 	config := &oauth.Config{
 		ClientId:     conf.ClientID,
 		ClientSecret: conf.ClientSecret,
@@ -38,7 +38,15 @@ func GetGoogleAccessToken(conf OAuthClient, auth_code string) (access string, re
 	t := &oauth.Transport{Config: config}
 	token, err := t.Exchange(auth_code)
 	if err != nil {
-		return "", "", time.Time{}, err
+		return nil, nil, time.Time{}, err
 	}
-	return token.AccessToken, token.RefreshToken, token.Expiry, nil
+	access = &token.AccessToken
+	if token.AccessToken == "" {
+		access = nil
+	}
+	refresh = &token.RefreshToken
+	if token.RefreshToken == "" {
+		refresh = nil
+	}
+	return access, refresh, token.Expiry, nil
 }
