@@ -84,14 +84,17 @@ var InvalidCredentialsError = errors.New("The credentials entered were not valid
 var InvalidConfirmationCodeError = errors.New("The confirmation code entered was not valid.")
 var UsernameTakenError = errors.New("That username is already in use. Please select another.")
 var InvalidUsernameCharacterError = errors.New("An invalid character was used in the username. Only a-z, A-Z, 0-9, -, and _ are allowed in usernames.")
-var InvalidUsernameLengthError = errors.New("Your username must be between 3 and 20 characters long.")
+var InvalidUsernameLengthShortError = errors.New("Your username must be between at least 3 characters long.")
+var InvalidUsernameLengthLongError = errors.New("Your username must be at most 20 characters long.")
 var MissingEmailError = errors.New("No email address was supplied. An email address is required.")
 var UserNotFoundError = errors.New("User was not found in the database.")
 var EmailAlreadyConfirmedError = errors.New("Email has already been confirmed.")
 
 func ValidateUsername(username string) error {
-	if len(username) < 3 || len(username) > 20 {
-		return InvalidUsernameLengthError
+	if len(username) < 3 {
+		return InvalidUsernameLengthShortError
+	} else if len(username) > 20 {
+		return InvalidUsernameLengthLongError
 	}
 	asciiOnly := func(r rune) rune {
 		switch {
