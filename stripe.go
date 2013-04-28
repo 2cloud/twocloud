@@ -73,7 +73,7 @@ func (p *Persister) GetStripeSource(id ID) (Stripe, error) {
 	return s, err
 }
 
-func (p *Persister) AddStripeSource(remote_id string, nickname *string, user_id ID) (Stripe, error) {
+func (p *Persister) AddStripeSource(remote_id string, nickname string, user_id ID) (Stripe, error) {
 	id, err := p.GetID()
 	if err != nil {
 		return Stripe{}, err
@@ -82,7 +82,7 @@ func (p *Persister) AddStripeSource(remote_id string, nickname *string, user_id 
 		FundingSource{
 			ID:       id,
 			RemoteID: remote_id,
-			Nickname: nickname,
+			Nickname: &nickname,
 			Added:    time.Now(),
 			UserID:   user_id,
 		},

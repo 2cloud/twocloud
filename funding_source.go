@@ -2,6 +2,7 @@ package twocloud
 
 import (
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,11 @@ type FundingSource struct {
 
 func (fs FundingSource) NicknameSet() bool {
 	return fs.Nickname != nil
+}
+
+func IsValidProvider(provider string) bool {
+	provider = strings.ToLower(provider)
+	return provider == "stripe"
 }
 
 func (fs FundingSource) GetNickname() string {
