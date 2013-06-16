@@ -49,52 +49,51 @@ func (campaign *Campaign) fromRow(row ScannableRow) error {
 }
 
 var CampaignNotFoundError = errors.New("Campaign not found.")
+var CampaignEmptyTitleError = errors.New("Campaign title empty")
+var CampaignEmptyDescriptionError = errors.New("Campaign description empty")
+var CampaignNegativeGoalError = errors.New("Campaign goal negative")
 
-func (p *Persister) GetCampaigns(current, aux *bool, before, after ID, count int) ([]Campaign, error) {
+func (p *Persister) GetCampaigns(current, aux *bool, before, after ID, count int, admin bool) ([]Campaign, error) {
 	campaigns := []Campaign{}
 	var rows *sql.Rows
 	var err error
-	if current != nil && aux != nil {
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE starts < $1 and ends > $1 and auxilliary=$2 and id < $3 and id > $4 ORDER BY starts LIMIT $5", time.Now(), *aux, before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns starts < $1 and ends > $1 and auxilliary=$2 and id < $3 ORDER BY starts LIMIT $4", time.Now(), *aux, before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns starts < $1 and ends > $1 and auxilliary=$2 and id > $3 ORDER BY starts LIMIT $4", time.Now(), *aux, after.String(), count)
+	keys := []string{}
+	values := []interface{}{}
+	if current != nil {
+		if *current {
+			keys = append(keys, "starts <", "ends >")
+			values = append(values, time.Now(), time.Now())
 		} else {
-			rows, err = p.Database.Query("SELECT * FROM campaigns starts < $1 and ends > $1 and auxilliary=$2 ORDER BY starts LIMIT $3", time.Now(), *aux, count)
-		}
-	} else if current != nil && aux == nil {
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE starts < $1 and ends > $1 and id < $2 and id > $3 ORDER BY starts LIMIT $4", time.Now(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE starts < $1 and ends > $1 and id < $2 ORDER BY starts LIMIT $3", time.Now(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE starts < $1 and ends > $1 and id > $2 ORDER BY starts LIMIT $3", time.Now(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE starts < $1 and ends > $1 ORDER BY starts LIMIT $2", time.Now(), count)
-		}
-	} else if current == nil && aux != nil {
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE auxilliary=$1 and id < $2 and id > $3 ORDER BY starts LIMIT $4", *aux, before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE auxilliary=$1 and id < $2 ORDER BY starts LIMIT $3", *aux, before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE auxilliary=$1 and id > $2 ORDER BY starts LIMIT $3", *aux, after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE auxilliary=$1 ORDER BY starts LIMIT $2", *aux, count)
-		}
-	} else {
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE id < $1 and id > $2 ORDER BY starts LIMIT $3", before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE id < $1 ORDER BY starts LIMIT $2", before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM campaigns WHERE id > $1 ORDER BY starts LIMIT $2", after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM campaigns ORDER BY starts LIMIT $2", count)
+			keys = append(keys, "ends <")
+			values = append(values, time.Now())
 		}
 	}
+	if aux != nil {
+		keys = append(keys, "auxilliary =")
+		values = append(values, *aux)
+	}
+	if !before.IsZero() {
+		keys = append(keys, "id <")
+		values = append(values, before.String())
+	}
+	if !after.IsZero() {
+		keys = append(keys, "id >")
+		values = append(values, after.String())
+	}
+	if admin && current != nil {
+		keys = append(keys, "starts <")
+		values = append(values, time.Now())
+	}
+	query := "SELECT * FROM campaigns WHERE "
+	for index, key := range keys {
+		query = query + key + " $" + strconv.Itoa(index) + " "
+		if index < len(keys) {
+			query = query + "and "
+		}
+	}
+	query = query + "ORDER BY starts LIMIT $5"
+	values = append(values, count)
+	rows, err = p.Database.Query(query, values...)
 	if err != nil {
 		return []Campaign{}, err
 	}
@@ -110,9 +109,15 @@ func (p *Persister) GetCampaigns(current, aux *bool, before, after ID, count int
 	return campaigns, err
 }
 
-func (p *Persister) GetCampaign(id ID) (Campaign, error) {
+func (p *Persister) GetCampaign(id ID, admin bool) (Campaign, error) {
 	var campaign Campaign
-	row := p.Database.QueryRow("SELECT * FROM campaigns WEHRE id=$1", id.String())
+	query := "SELECT * FROM campaigns WHERE id=$1"
+	values := []interface{}{id.String()}
+	if !admin {
+		query = query + " and starts <= $2"
+		values = append(values, time.Now())
+	}
+	row := p.Database.QueryRow(query, values...)
 	err := campaign.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = CampaignNotFoundError
@@ -126,7 +131,16 @@ func (p *Persister) AddCampaign(title, description string, goal int, aux bool, s
 		return Campaign{}, err
 	}
 	title = strings.TrimSpace(title)
+	if title == "" {
+		return Campaign{}, CampaignEmptyTitleError
+	}
 	description = strings.TrimSpace(description)
+	if description == "" {
+		return Campaign{}, CampaignEmptyDescriptionError
+	}
+	if goal < 0 {
+		return Campaign{}, CampaignNegativeGoalError
+	}
 	campaign := Campaign{
 		ID:          id,
 		Title:       title,
