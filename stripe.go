@@ -2,6 +2,7 @@ package twocloud
 
 import (
 	"database/sql"
+	"github.com/bradrydzewski/go.stripe"
 	"github.com/lib/pq"
 	"time"
 )
@@ -128,7 +129,22 @@ func (p *Persister) DeleteStripeSource(s Stripe) error {
 	return err
 }
 
-func (s *Stripe) Charge(amount int) error {
-	// TODO: implement charging a stripe account
-	return nil
+func (p *Persister) ChargeStripe(s *Stripe, amount int64) error {
+	if s == nil {
+		return FundingSourceNilError
+	}
+	if s.RemoteID == "" {
+		return FundingSourceEmptyRemoteIDError
+	}
+	params := stripe.ChargeParams{
+		Amount:   amount,
+		Currency: stripe.USD,
+		Customer: s.RemoteID,
+	}
+	charge, err := stripe.Charges.Create(&params)
+	if err != nil {
+		return err
+	}
+	p.Log.Debug("Created charge %s", charge.Id)
+	return p.UpdateStripeSourceLastUsed(s)
 }

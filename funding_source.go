@@ -51,3 +51,5 @@ type Chargeable interface {
 }
 
 var FundingSourceNotFoundError = errors.New("Funding source not found.")
+var FundingSourceNilError = errors.New("Nil funding source supplied.")
+var FundingSourceEmptyRemoteIDError = errors.New("RemoteID empty.")
