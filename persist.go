@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"github.com/bradrydzewski/go.stripe"
 	"github.com/lib/pq"
 	"github.com/noeq/noeq"
 	"log"
@@ -109,6 +110,7 @@ func NewPersister(config Config) (*Persister, error) {
 			return nil, err
 		}
 	}
+	stripe.SetKey(config.Stripe)
 	return &Persister{
 		Generator: generator,
 		Database:  db,

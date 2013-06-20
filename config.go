@@ -18,6 +18,7 @@ type Config struct {
 	GracePeriod time.Duration `json:"grace_period"`
 	Generator   IDGenerator   `json:"id_gen"`
 	Culprit     string        `json:"culprit"`
+	Stripe      string        `json:"stripe"`
 }
 
 type OAuthClient struct {
