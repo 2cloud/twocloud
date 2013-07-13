@@ -90,8 +90,59 @@ const (
 
 var PaymentNotFoundError = errors.New("Payment not found.")
 
-func (p *Persister) GetPayments(before, after ID, count int, status []string, user *User, campaign *Campaign) ([]Payment, error) {
-	return []Payment{}, nil
+func (p *Persister) GetPayments(before, after ID, count int, status []string, user, campaign *ID) ([]Payment, error) {
+	payments := []Payment{}
+	var rows *sql.Rows
+	var err error
+	keys := []string{}
+	values := []interface{}{}
+	if !before.IsZero() {
+		keys = append(keys, "id <")
+		values = append(values, before.String())
+	}
+	if !after.IsZero() {
+		keys = append(keys, "id >")
+		values = append(values, after.String())
+	}
+	if user != nil {
+		keys = append(keys, "user_id =")
+		values = append(values, user.String())
+	}
+	if campaign != nil {
+		keys = append(keys, "campaign =")
+		values = append(values, campaign.String())
+	}
+	if len(status) > 0 {
+		keys = append(keys, "status IN ")
+		//TODO: This is HORRIBLE. These should each be separate values that are substituted individually to avoid SQL injection. This method should be used with caution and only on validated things until we get better SQL generation in place.
+		values = append(values, "("+strings.Join(status, ", ")+")")
+	}
+	query := "SELECT * FROM payments"
+	if len(keys) {
+		query = query + " WHERE "
+	}
+	for index, key := range keys {
+		query = query + key + " $" + strconv.Itoa(index+1) + " "
+		if index < len(keys) {
+			query = query + "and "
+		}
+	}
+	values = append(values, count)
+	query = query + "ORDER BY created DESC LIMIT $" + strconv.Itoa(len(keys))
+	rows, err = p.Database.Query(query, values...)
+	if err != nil {
+		return []Payment{}, err
+	}
+	for rows.Next() {
+		var payment Payment
+		err = payment.fromRow(rows)
+		if err != nil {
+			return []Payment{}, err
+		}
+		payments = append(payments, payment)
+	}
+	err = rows.Err()
+	return payments, err
 }
 
 func (p *Persister) GetPayment(id ID) (Payment, error) {
