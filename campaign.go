@@ -207,7 +207,7 @@ func (p *Persister) UpdateCampaign(campaign *Campaign, title, description *strin
 		}
 	}
 	stmt += ` WHERE id=$` + strconv.Itoa(len(changedKeys)+1)
-	changedValues = append(changedValues, campaign.ID)
+	changedValues = append(changedValues, campaign.ID.String())
 	_, err := p.Database.Exec(stmt, changedValues...)
 	return err
 }
