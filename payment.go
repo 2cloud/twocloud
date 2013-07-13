@@ -89,8 +89,14 @@ const (
 )
 
 var PaymentNotFoundError = errors.New("Payment not found.")
+var PaymentInvalidStatusError = errors.New("Invalid status.")
 
 func (p *Persister) GetPayments(before, after ID, count int, status []string, user, campaign *ID) ([]Payment, error) {
+	for _, s := range status {
+		if s != PAYMENT_STATUS_PENDING && s != PAYMENT_STATUS_CHARGING && s != PAYMENT_STATUS_REFUNDING && s != PAYMENT_STATUS_REFUNDED && s != PAYMENT_STATUS_SUCCESS && s != PAYMENT_STATUS_ERROR && s != PAYMENT_STATUS_RETRY {
+			return []Payment{}, PaymentInvalidStatusError
+		}
+	}
 	payments := []Payment{}
 	var rows *sql.Rows
 	var err error
