@@ -90,6 +90,7 @@ const (
 
 var PaymentNotFoundError = errors.New("Payment not found.")
 var PaymentInvalidStatusError = errors.New("Invalid status.")
+var PaymentNegativeAmountError = errors.New("Amount was negative.")
 
 func (p *Persister) GetPayments(before, after ID, count int, status []string, user, campaign *ID) ([]Payment, error) {
 	for _, s := range status {
@@ -163,17 +164,108 @@ func (p *Persister) GetPayment(id ID) (Payment, error) {
 }
 
 func (p *Persister) AddPayment(amount int, message string, userID, fsID, campaignID ID, anonymous bool) (Payment, error) {
-	return Payment{}, nil
+	id, err := p.GetID()
+	if err != nil {
+		return Payment{}, err
+	}
+	message = strings.TrimSpace(message)
+	if amount < 9 {
+		return Payment{}, PaymentNegativeAmountError
+	}
+	payment := Payment{
+		ID:              id,
+		Amount:          amount,
+		Message:         message,
+		Created:         time.Now(),
+		UserID:          userID,
+		FundingSourceID: fsID,
+		Anonymous:       anonymous,
+		Campaign:        campaignID,
+		Status:          PAYMENT_STATUS_PENDING,
+	}
+	stmt := `INSERT INTO payments VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
+	_, err = p.Database.Exec(stmt, payment.ID.String(), payment.RemoteID, payment.Amount, payment.Message, payment.Created, nil, payment.UserID.String(), payment.FundingSourceID.String(), payment.Anonymous, payment.Campaign, payment.Status, payment.Error)
+	return payment, err
 }
 
-func (p *Persister) UpdatePayment(payment *Payment, amount int, message string, userID, fsID, campaignID ID, anonymous bool) error {
-	return nil
+func (p *Persister) UpdatePayment(payment *Payment, amount *int, message *string, userID, fsID, campaignID *ID, anonymous *bool) error {
+	changedKeys := []string{}
+	changedValues := []interface{}{}
+	if amount != nil {
+		payment.Amount = *amount
+		changedKeys = append(changedKeys, "amount")
+		changedValues = append(changedValues, payment.Amount)
+	}
+	if message != nil {
+		payment.Message = strings.TrimSpace(*message)
+		changedKeys = append(changedKeys, "message")
+		changedValues = append(changedValues, payment.Message)
+	}
+	if userID != nil {
+		payment.UserID = *userID
+		changedKeys = append(changedKeys, "user_id")
+		changedValues = append(changedValues, payment.UserID.String())
+	}
+	if fsID != nil {
+		payment.FundingSourceID = *fsID
+		changedKeys = append(changedKeys, "funding_source_id")
+		changedValues = append(changedValues, payment.FundingSourceID.String())
+	}
+	if campaignID != nil {
+		payment.Campaign = *campaignID
+		changedKeys = append(changedKeys, "campaign")
+		changedValues = append(changedValues, payment.Campaign.String())
+	}
+	if anonymous != nil {
+		payment.Anonymous = *anonymous
+		changedKeys = append(changedKeys, "anonymous")
+		changedValues = append(changedValues, payment.Anonymous)
+	}
+	stmt := `UPDATE payments SET`
+	for index, value := range changedKeys {
+		stmt += " " + value + "=$" + strconv.Itoa(index+1)
+		if index+1 < len(changedKeys) {
+			stmt += ","
+		}
+	}
+	stmt += ` WHERE id=$` + strconv.Itoa(len(changedKeys)+1)
+	changedValues = append(changedValues, payment.ID.String())
+	_, err := p.Database.Exec(stmt, changedValues...)
+	return err
 }
 
-func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error string, completed bool) error {
-	return nil
+func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error string, completed *bool) error {
+	payment.Status = strings.TrimSpace(status)
+	payment.Error = strings.TrimSpace(payment_error)
+	keys := []string{"status", "error"}
+	values := []interface{}{payment.Status, payment.Error}
+	if completed != nil {
+		keys = append(keys, "completed")
+		if completed {
+			payment.Completed = time.Now()
+		} else {
+			payment.Completed = time.Time{}
+		}
+		values = append(values, payment.Completed)
+	}
+	stmt := `UPDATE payments SET`
+	for index, value := range keys {
+		stmt += " " + value + "=$" + strconv.Itoa(index+1)
+		if index+1 < len(keys) {
+			stmt += ","
+		}
+	}
+	stmt += " WHERE id=$" + strconv.Itoa(len(keys)+1)
+	values = append(values, payment.ID.String())
+	_, err := p.Database.Exec(stmt, values...)
+	return err
 }
 
-func (p *Persister) DeletePayment(id ID) error {
+func (p *Persister) DeletePayment(payment Payment) error {
+	stmt := `DELETE FROM payments WHERE id=$1;`
+	_, err := p.Database.Exec(stmt, payment.ID.String())
+	if err != nil {
+		return err
+	}
 	return nil
 }
