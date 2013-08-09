@@ -42,7 +42,7 @@ func (payment *Payment) fromRow(row ScannableRow) error {
 	var idStr string
 	var userIDStr, fsIDStr, campaignStr *string
 	var completed pq.NullTime
-	err := row.Scan(&idStr, &payment.RemoteID, &payment.Amount, &payment.Message, &payment.Created, &completed, &userIDStr, &fsIDStr, &payment.Anonymous, &campaignStr, &campaign.Status, &campaign.Error)
+	err := row.Scan(&idStr, &payment.RemoteID, &payment.Amount, &payment.Message, &payment.Created, &completed, &userIDStr, &fsIDStr, &payment.Anonymous, &campaignStr, &payment.Status, &payment.Error)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (payment *Payment) fromRow(row ScannableRow) error {
 		payment.Campaign = campaign
 	}
 	if completed.Valid {
-		payment.Completed = completed
+		payment.Completed = completed.Time
 	}
 	return nil
 }
@@ -88,13 +88,21 @@ const (
 	PAYMENT_STATUS_RETRY     = "retry"
 )
 
+func IsValidPaymentStatus(status string) bool {
+	return status == PAYMENT_STATUS_PENDING || status == PAYMENT_STATUS_CHARGING || status == PAYMENT_STATUS_REFUNDING || status == PAYMENT_STATUS_REFUNDED || status == PAYMENT_STATUS_SUCCESS || status == PAYMENT_STATUS_ERROR || status == PAYMENT_STATUS_RETRY
+}
+
+func IsPaymentStatusCompleted(status string) bool {
+	return status == PAYMENT_STATUS_REFUNDED || status == PAYMENT_STATUS_SUCCESS || status == PAYMENT_STATUS_ERROR
+}
+
 var PaymentNotFoundError = errors.New("Payment not found.")
 var PaymentInvalidStatusError = errors.New("Invalid status.")
 var PaymentNegativeAmountError = errors.New("Amount was negative.")
 
-func (p *Persister) GetPayments(before, after ID, count int, status []string, user, campaign *ID) ([]Payment, error) {
+func (p *Persister) GetPayments(before, after ID, count int, status []string, user, campaign, funding_source *ID) ([]Payment, error) {
 	for _, s := range status {
-		if s != PAYMENT_STATUS_PENDING && s != PAYMENT_STATUS_CHARGING && s != PAYMENT_STATUS_REFUNDING && s != PAYMENT_STATUS_REFUNDED && s != PAYMENT_STATUS_SUCCESS && s != PAYMENT_STATUS_ERROR && s != PAYMENT_STATUS_RETRY {
+		if !IsValidPaymentStatus(s) {
 			return []Payment{}, PaymentInvalidStatusError
 		}
 	}
@@ -119,13 +127,17 @@ func (p *Persister) GetPayments(before, after ID, count int, status []string, us
 		keys = append(keys, "campaign =")
 		values = append(values, campaign.String())
 	}
+	if funding_source != nil {
+		keys = append(keys, "funding_source_id =")
+		values = append(values, funding_source.String())
+	}
 	if len(status) > 0 {
 		keys = append(keys, "status IN ")
 		//TODO: This is HORRIBLE. These should each be separate values that are substituted individually to avoid SQL injection. This method should be used with caution and only on validated things until we get better SQL generation in place.
 		values = append(values, "("+strings.Join(status, ", ")+")")
 	}
 	query := "SELECT * FROM payments"
-	if len(keys) {
+	if len(keys) > 0 {
 		query = query + " WHERE "
 	}
 	for index, key := range keys {
@@ -234,20 +246,19 @@ func (p *Persister) UpdatePayment(payment *Payment, amount *int, message *string
 	return err
 }
 
-func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error string, completed *bool) error {
+func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error string) error {
 	payment.Status = strings.TrimSpace(status)
 	payment.Error = strings.TrimSpace(payment_error)
-	keys := []string{"status", "error"}
-	values := []interface{}{payment.Status, payment.Error}
-	if completed != nil {
-		keys = append(keys, "completed")
-		if completed {
-			payment.Completed = time.Now()
-		} else {
-			payment.Completed = time.Time{}
-		}
-		values = append(values, payment.Completed)
+	if !IsValidPaymentStatus(payment.Status) {
+		return PaymentInvalidStatusError
 	}
+	if IsPaymentStatusCompleted(status) {
+		payment.Completed = time.Now()
+	} else {
+		payment.Completed = time.Time{}
+	}
+	keys := []string{"status", "error", "completed"}
+	values := []interface{}{payment.Status, payment.Error, payment.Completed}
 	stmt := `UPDATE payments SET`
 	for index, value := range keys {
 		stmt += " " + value + "=$" + strconv.Itoa(index+1)
