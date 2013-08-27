@@ -3,7 +3,7 @@ package twocloud
 import (
 	"errors"
 	"github.com/lib/pq"
-	"github.com/secondbit/pan"
+	"secondbit.org/pan"
 	"strings"
 	"time"
 )
