@@ -1,223 +1,293 @@
 package twocloud
 
 import (
-	"database/sql"
 	"errors"
+	"github.com/lib/pq"
+	"github.com/secondbit/pan"
+	"strings"
 	"time"
 )
 
 var SubscriptionTableCreateStatement = `CREATE TABLE subscriptions (
 	id varchar primary key,
-	expires timestamp NOT NULL,
-	auto_renew bool default false,
-	funding_id varchar,
-	funding_source varchar,
-	user_id varchar NOT NULL);`
+	amount bigint NOT NULL,
+	period varchar NOT NULL,
+	renews timestamp NOT NULL,
+	notify_on_renewal bool NOT NULL,
+	last_notified timestamp,
+	funding_id varchar NOT NULL,
+	funding_source varchar NOT NULL,
+	user_id varchar NOT NULL,
+	campaign varchar NOT NULL);`
 
 type Subscription struct {
-	ID            ID        `json:"id,omitempty"`
-	Active        bool      `json:"active,omitempty"`
-	InGracePeriod bool      `json:"in_grace_period,omitempty"`
-	Expires       time.Time `json:"expires,omitempty"`
-	AutoRenew     bool      `json:"auto_renew,omitempty"`
-	FundingID     ID        `json:"funding_id,omitempty"`
-	FundingSource string    `json:"funding_source,omitempty"`
-	UserID        ID        `json:"user_id,omitempty"`
+	ID              ID        `json:"id,omitempty"`
+	Amount          uint64    `json:"amount,omitempty"`
+	Period          string    `json:"period,omitempty"`
+	Renews          time.Time `json:"renews,omitempty"`
+	NotifyOnRenewal bool      `json:"notify_on_renewal,omitempty"`
+	LastNotified    time.Time `json:"last_notified,omitempty"`
+	FundingID       ID        `json:"funding_id,omitempty"`
+	FundingSource   string    `json:"funding_source,omitempty"`
+	UserID          ID        `json:"user_id,omitempty"`
+	CampaignID      ID        `json:"campaign,omitempty"`
 }
 
 func (subscription *Subscription) IsEmpty() bool {
 	return subscription.ID.IsZero()
 }
 
-type SubscriptionExpiredError struct {
-	Expired time.Time
-}
-
-func (e *SubscriptionExpiredError) Error() string {
-	specifics := ""
-	if !e.Expired.IsZero() {
-		specifics = " It expired on " + e.Expired.Format("Jan 02, 2006") + "."
+func (subscription *Subscription) CheckValues() error {
+	subscription.Period = strings.ToLower(subscription.Period)
+	if subscription.Period != "monthly" && subscription.Period != "yearly" {
+		return InvalidPeriodError
 	}
-	return "Your subscription has expired." + specifics
-}
 
-type SubscriptionExpiredWarning struct {
-	Expired time.Time
-}
-
-func (e *SubscriptionExpiredWarning) Error() string {
-	specifics := ""
-	if !e.Expired.IsZero() {
-		specifics = " It expired on " + e.Expired.Format("Jan 02, 2006") + "."
-	}
-	return "Warning! Your subscription has expired." + specifics
-}
-
-var UnrecognisedFundingSourceError = errors.New("Unrecognised funding source.")
-
-func (subscription *Subscription) fromRow(row ScannableRow) error {
-	var fundingIDStr, userIDStr sql.NullString
-	var idStr string
-	err := row.Scan(&idStr, &subscription.Expires, &subscription.AutoRenew, &fundingIDStr, &subscription.FundingSource, &userIDStr)
-	if err != nil {
-		return err
-	}
-	id, err := IDFromString(idStr)
-	if err != nil {
-		return err
-	}
-	subscription.ID = id
-	subscription.UserID = ID(0)
-	subscription.FundingID = ID(0)
-	if userIDStr.Valid {
-		userID, err := IDFromString(userIDStr.String)
-		if err != nil {
-			return err
-		}
-		subscription.UserID = userID
-	}
-	if fundingIDStr.Valid {
-		fundingID, err := IDFromString(fundingIDStr.String)
-		if err != nil {
-			return err
-		}
-		subscription.FundingID = fundingID
-	}
-	return nil
-}
-
-func (p *Persister) Charge(subscription *Subscription, amount int) error {
-	switch subscription.FundingSource {
-	case "dwolla":
-		// TODO: retrieve dwolla funding information
-		// TODO: put message on the dwolla subscription queue
-	case "stripe":
-		// TODO: retrieve stripe funding information
-		// TODO: put message on the stripe subscription queue
-	default:
+	subscription.FundingSource = strings.ToLower(subscription.FundingSource)
+	if subscription.FundingSource != "stripe" {
 		return UnrecognisedFundingSourceError
 	}
 	return nil
 }
 
-func (p *Persister) updateSubscriptionStatus(subscription *Subscription) {
-	subscription.Active = subscription.Expires.After(time.Now())
-	grace := subscription.Expires.Add(time.Hour * 24 * p.Config.GracePeriod)
-	subscription.InGracePeriod = !subscription.Active && grace.After(time.Now())
+var UnrecognisedFundingSourceError = errors.New("Unrecognised funding source.")
+var InvalidPeriodError = errors.New("Invalid period.")
+var InvalidStatusError = errors.New("Invalid status.")
+
+func (subscription *Subscription) fromRow(row ScannableRow) error {
+	var idStr, fundingIDStr, userIDStr, campaignIDStr string
+	var lastNotified pq.NullTime
+	err := row.Scan(&idStr, &subscription.Amount, &subscription.Period, &subscription.Renews, &subscription.NotifyOnRenewal, &lastNotified, &fundingIDStr, &subscription.FundingSource, &userIDStr, &campaignIDStr)
+	if err != nil {
+		return err
+	}
+	subscription.ID, err = IDFromString(idStr)
+	if err != nil {
+		return err
+	}
+	subscription.UserID, err = IDFromString(userIDStr)
+	if err != nil {
+		return err
+	}
+	subscription.FundingID, err = IDFromString(fundingIDStr)
+	if err != nil {
+		return err
+	}
+	subscription.CampaignID, err = IDFromString(campaignIDStr)
+	if err != nil {
+		return err
+	}
+	if lastNotified.Valid {
+		subscription.LastNotified = lastNotified.Time
+	}
+	return nil
 }
 
-func (p *Persister) getTrialEnd() time.Time {
-	return time.Now().Add(time.Hour * 24 * p.Config.GracePeriod)
-}
-
-func (p *Persister) CreateSubscription(user_id, funding_id ID, funding_src string, auto_renew bool) (*Subscription, error) {
+func (p *Persister) CreateSubscription(amount uint64, period string, renews time.Time, notify bool, campaign_id, user_id, funding_id ID, funding_src string) (*Subscription, error) {
 	id, err := p.GetID()
 	if err != nil {
 		return nil, err
 	}
-	expires := p.getTrialEnd()
-	stmt := `INSERT INTO subscriptions VALUES($1, $2, $3, $4, $5, $6);`
-	_, err = p.Database.Exec(stmt, id.String(), expires, auto_renew, funding_id.String(), funding_src, user_id.String())
-	subscription := &Subscription{
-		ID:            id,
-		Expires:       expires,
-		AutoRenew:     auto_renew,
-		FundingID:     funding_id,
-		FundingSource: funding_src,
-		UserID:        user_id,
+	period = strings.ToLower(period)
+	if renews.IsZero() {
+		renews = time.Now()
+		if period == "monthly" {
+			renews = renews.Add(time.Hour * 24 * 30)
+		} else if period == "yearly" {
+			renews = renews.Add(time.Hour * 24 * 365)
+		} else {
+			return nil, InvalidPeriodError
+		}
+	} else {
+		if period != "monthly" && period != "yearly" {
+			return nil, InvalidPeriodError
+		}
 	}
-	p.updateSubscriptionStatus(subscription)
+	stmt := `INSERT INTO subscriptions VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
+	_, err = p.Database.Exec(stmt, id.String(), amount, period, renews, notify, nil, funding_id.String, funding_src, user_id.String(), campaign_id.String())
+	subscription := &Subscription{
+		ID:              id,
+		Amount:          amount,
+		Period:          period,
+		Renews:          renews,
+		NotifyOnRenewal: notify,
+		FundingID:       funding_id,
+		FundingSource:   funding_src,
+		UserID:          user_id,
+		CampaignID:      campaign_id,
+	}
 	return subscription, err
 }
 
-func (p *Persister) UpdateSubscriptionPaymentSource(subscription *Subscription, funding_id ID, funding_src string) error {
-	subscription.FundingID = funding_id
-	subscription.FundingSource = funding_src
-	stmt := `UPDATE subscriptions SET funding_id=$1, funding_source=$2 WHERE id=$3;`
-	_, err := p.Database.Exec(stmt, funding_id.String(), funding_src, subscription.ID.String())
-	return err
-}
-
-func (p *Persister) UpdateSubscriptionExpiration(subscription *Subscription, expires time.Time) error {
-	subscription.Expires = expires
-	stmt := `UPDATE subscriptions SET expires=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, expires, subscription.ID.String())
-	return err
-}
-
-func (p *Persister) StartRenewingSubscription(subscription *Subscription) error {
-	subscription.AutoRenew = true
-	stmt := `UPDATE subscriptions SET auto_renew=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, true, subscription.ID.String())
-	return err
-}
-
-func (p *Persister) CancelRenewingSubscription(subscription *Subscription) error {
-	subscription.AutoRenew = false
-	stmt := `UPDATE subscriptions SET auto_renew=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, false, subscription.ID.String())
-	return err
-}
-
-func (p *Persister) GetSubscriptionsByExpiration(after, before time.Time, count int) ([]*Subscription, error) {
-	subscriptions := []*Subscription{}
-	var rows *sql.Rows
-	var err error
-	if !after.IsZero() && !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM subscriptions WHERE expires > $1 and expires < $2 ORDER BY expires DESC LIMIT $3", after, before, count)
-	} else if !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM subscriptions WHERE expires > $1 ORDER BY expires DESC LIMIT $2", after, count)
-	} else if !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM subscriptions WHERE expires < $1 ORDER BY expires DESC LIMIT $2", before, count)
-	} else {
-		rows, err = p.Database.Query("SELECT * FROM subscriptions ORDER BY expires DESC LIMIT $1", count)
+func (p *Persister) UpdateSubscription(sub *Subscription, amount *uint64, period *string, renews *time.Time, notify *bool, campaign, user, fundingID *ID, fundingSource *string) error {
+	query := pan.New()
+	query.SQL = "UPDATE subscriptions SET "
+	vars := []string{}
+	if amount != nil {
+		vars = append(vars, "amount=?")
+		query.Args = append(query.Args, *amount)
+		sub.Amount = *amount
 	}
+	if period != nil {
+		periodStr := strings.ToLower(*period)
+		if periodStr != "monthly" && periodStr != "yearly" {
+			return InvalidPeriodError
+		}
+		vars = append(vars, "period=?")
+		query.Args = append(query.Args, periodStr)
+		sub.Period = *period
+	}
+	if renews != nil {
+		vars = append(vars, "renews=?")
+		query.Args = append(query.Args, *renews)
+		sub.Renews = *renews
+	}
+	if notify != nil {
+		vars = append(vars, "notify_on_renewal=?")
+		query.Args = append(query.Args, *notify)
+		sub.NotifyOnRenewal = *notify
+	}
+	if campaign != nil {
+		vars = append(vars, "campaign_id=?")
+		query.Args = append(query.Args, campaign.String())
+		sub.CampaignID = *campaign
+	}
+	if user != nil {
+		vars = append(vars, "user_id=?")
+		query.Args = append(query.Args, user.String())
+		sub.UserID = *user
+	}
+	if fundingID != nil {
+		vars = append(vars, "funding_id=?")
+		query.Args = append(query.Args, fundingID.String())
+		sub.FundingID = *fundingID
+	}
+	if fundingSource != nil {
+		vars = append(vars, "funding_source=?")
+		query.Args = append(query.Args, *fundingSource)
+		sub.FundingSource = *fundingSource
+	}
+	query.SQL += strings.Join(vars, " and ") + " "
+	query.IncludeWhere()
+	query.SQL += "id=?"
+	query.Args = append(query.Args, sub.ID.String())
+	_, err := p.Database.Exec(query.String(), query.Args...)
+	return err
+}
+
+func (p *Persister) GetSubscriptionsByExpiration(status string, after, before ID, count int) ([]Subscription, error) {
+	subscriptions := []Subscription{}
+	query := pan.New()
+	query.SQL = "SELECT * FROM subscriptions"
+	if status != "" {
+		query.IncludeWhere()
+		status = strings.ToLower(status)
+		if status == "renewing" {
+			query.SQL += "renews < ?"
+			query.Args = append(query.Args, time.Now())
+		} else if status == "renewing_soon" {
+			query.SQL += "renews > ? AND renews < ?"
+			query.Args = append(query.Args, time.Now(), time.Now().Add(24*time.Hour))
+		} else {
+			return subscriptions, InvalidStatusError
+		}
+	}
+	if !after.IsZero() {
+		query.IncludeWhere()
+		query.SQL += "id > ?"
+		query.Args = append(query.Args, after.String())
+	}
+	if !before.IsZero() {
+		query.IncludeWhere()
+		query.SQL += "id < ?"
+		query.Args = append(query.Args, before.String())
+	}
+	query.IncludeOrder()
+	query.SQL += "renews DESC"
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.String(), query.Args...)
 	if err != nil {
-		return []*Subscription{}, err
+		return subscriptions, err
 	}
 	for rows.Next() {
-		subscription := &Subscription{}
+		subscription := Subscription{}
 		err = subscription.fromRow(rows)
 		if err != nil {
-			return []*Subscription{}, err
+			return subscriptions, err
 		}
-		p.updateSubscriptionStatus(subscription)
 		subscriptions = append(subscriptions, subscription)
 	}
 	err = rows.Err()
 	return subscriptions, err
 }
 
-func (p *Persister) GetSubscriptionByUser(user ID) (*Subscription, error) {
-	subscription := &Subscription{}
-	row := p.Database.QueryRow("SELECT * FROM subscriptions WHERE user_id=$1", user.String())
-	err := subscription.fromRow(row)
-	if err != nil {
-		return nil, err
+func (p *Persister) GetSubscriptionsByUser(user ID, after, before ID, count int) ([]Subscription, error) {
+	subscriptions := []Subscription{}
+	query := pan.New()
+	query.SQL = "SELECT * FROM subscriptions"
+	query.IncludeWhere()
+	query.SQL += "user_id=?"
+	query.Args = append(query.Args, user.String())
+	if !after.IsZero() {
+		query.IncludeWhere()
+		query.SQL += "id > ?"
+		query.Args = append(query.Args, after.String())
 	}
-	p.updateSubscriptionStatus(subscription)
-	return subscription, nil
+	if !before.IsZero() {
+		query.IncludeWhere()
+		query.SQL += "id < ?"
+		query.Args = append(query.Args, before.String())
+	}
+	query.IncludeOrder()
+	query.SQL += "renews DESC"
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.String(), query.Args...)
+	if err != nil {
+		return subscriptions, err
+	}
+	for rows.Next() {
+		var subscription Subscription
+		err := subscription.fromRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		subscriptions = append(subscriptions, subscription)
+	}
+	err = rows.Err()
+	return subscriptions, err
 }
 
 func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 	subscription := &Subscription{}
-	row := p.Database.QueryRow("SELECT * FROM subscriptions WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM subscriptions"
+	query.IncludeWhere()
+	query.SQL += "id=?"
+	query.Args = append(query.Args, id.String())
+	row := p.Database.QueryRow(query.String(), query.Args...)
 	err := subscription.fromRow(row)
 	if err != nil {
 		return nil, err
 	}
-	p.updateSubscriptionStatus(subscription)
 	return subscription, nil
 }
 
-func (p *Persister) deleteSubscription(id ID) error {
-	stmt := `DELETE FROM subscriptions WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, id.String())
+func (p *Persister) CancelSubscription(id ID) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM subscriptions"
+	query.IncludeWhere()
+	query.SQL += "id=?"
+	query.Args = append(query.Args, id.String())
+	_, err := p.Database.Exec(query.String(), query.Args...)
 	return err
 }
 
-func (p *Persister) deleteSubscriptionByUser(user ID) error {
-	stmt := `DELETE FROM subscriptions WHERE user_id=$1;`
-	_, err := p.Database.Exec(stmt, user.String())
+func (p *Persister) cancelSubscriptionsByUser(user ID) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM subscriptions"
+	query.IncludeWhere()
+	query.SQL += "user_id=?"
+	query.Args = append(query.Args, user.String())
+	_, err := p.Database.Exec(query.String(), query.Args...)
 	return err
 }

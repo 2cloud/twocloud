@@ -30,18 +30,17 @@ type Name struct {
 }
 
 type User struct {
-	ID                ID            `json:"id,omitempty"`
-	Username          string        `json:"username,omitempty"`
-	Email             string        `json:"email,omitempty"`
-	EmailUnconfirmed  bool          `json:"email_unconfirmed,omitempty"`
-	EmailConfirmation string        `json:"-"`
-	Secret            string        `json:"secret,omitempty"`
-	Joined            time.Time     `json:"joined,omitempty"`
-	Name              Name          `json:"name,omitempty"`
-	LastActive        time.Time     `json:"last_active,omitempty"`
-	IsAdmin           bool          `json:"is_admin,omitempty"`
-	Subscription      *Subscription `json:"subscription,omitempty"`
-	ReceiveNewsletter bool          `json:"receives_newsletter,omitempty"`
+	ID                ID        `json:"id,omitempty"`
+	Username          string    `json:"username,omitempty"`
+	Email             string    `json:"email,omitempty"`
+	EmailUnconfirmed  bool      `json:"email_unconfirmed,omitempty"`
+	EmailConfirmation string    `json:"-"`
+	Secret            string    `json:"secret,omitempty"`
+	Joined            time.Time `json:"joined,omitempty"`
+	Name              Name      `json:"name,omitempty"`
+	LastActive        time.Time `json:"last_active,omitempty"`
+	IsAdmin           bool      `json:"is_admin,omitempty"`
+	ReceiveNewsletter bool      `json:"receives_newsletter,omitempty"`
 }
 
 func (user *User) IsEmpty() bool {
@@ -133,22 +132,7 @@ func (p *Persister) Authenticate(username, secret string) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
-	var subscriptionError error
-	if p.Config.UseSubscriptions {
-		user.Subscription, err = p.GetSubscriptionByUser(user.ID)
-		if err != nil {
-			return User{}, err
-		}
-		p.updateSubscriptionStatus(user.Subscription)
-		if !user.Subscription.Active && !user.IsAdmin {
-			if !user.Subscription.InGracePeriod {
-				subscriptionError = &SubscriptionExpiredError{Expired: user.Subscription.Expires}
-			} else {
-				subscriptionError = &SubscriptionExpiredWarning{Expired: user.Subscription.Expires}
-			}
-		}
-	}
-	return user, subscriptionError
+	return user, nil
 }
 
 func (p *Persister) updateUserLastActive(user *User) error {
@@ -200,11 +184,8 @@ func (p *Persister) Register(username, email string, given_name, family_name *st
 			Given:  given_name,
 			Family: family_name,
 		},
-		LastActive: time.Now(),
-		IsAdmin:    is_admin,
-		Subscription: &Subscription{
-			Expires: time.Now().Add(p.Config.TrialPeriod * time.Hour * 24),
-		},
+		LastActive:        time.Now(),
+		IsAdmin:           is_admin,
 		ReceiveNewsletter: newsletter,
 	}
 	stmt := `INSERT INTO users VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
@@ -215,7 +196,6 @@ func (p *Persister) Register(username, email string, given_name, family_name *st
 		}
 		return User{}, err
 	}
-	p.updateSubscriptionStatus(user.Subscription)
 	return user, nil
 }
 
