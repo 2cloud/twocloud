@@ -3,6 +3,7 @@ package twocloud
 import (
 	"database/sql"
 	"errors"
+	"secondbit.org/pan"
 	"time"
 )
 
@@ -103,7 +104,11 @@ func (p *Persister) GetAccountByTokens(access, refresh *string, expiration time.
 
 func (p *Persister) getAccountByForeignID(foreign_id string) (Account, error) {
 	var account Account
-	row := p.Database.QueryRow("SELECT * FROM accounts WHERE foreign_id=$1", foreign_id)
+	query := pan.New()
+	query.SQL = "SELECT * FROM accounts"
+	query.IncludeWhere()
+	query.Include("foreign_id=?", foreign_id)
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := account.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = AccountNotFoundError
@@ -112,21 +117,31 @@ func (p *Persister) getAccountByForeignID(foreign_id string) (Account, error) {
 }
 
 func (p *Persister) createAccount(account Account) error {
-	stmt := `INSERT INTO accounts VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17);`
-	_, err := p.Database.Exec(stmt, account.ID.String(), account.Provider, account.ForeignID, account.Added, account.Email, account.EmailVerified, account.DisplayName, account.GivenName, account.FamilyName, account.Picture, account.Locale, account.Timezone, account.Gender, account.accessToken, account.refreshToken, account.expires, account.UserID.String())
+	query := pan.New()
+	query.SQL = "INSERT INTO accounts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	query.Args = append(query.Args, account.ID.String(), account.Provider, account.ForeignID, account.Added, account.Email, account.EmailVerified, account.DisplayName, account.GivenName, account.FamilyName, account.Picture, account.Locale, account.Timezone, account.Gender, account.accessToken, account.refreshToken, account.expires, account.UserID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) GetAccountByID(id ID) (Account, error) {
 	var account Account
-	row := p.Database.QueryRow("SELECT * FROM accounts WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM accounts"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := account.fromRow(row)
 	return account, err
 }
 
 func (p *Persister) GetAccountsByUser(id ID) ([]Account, error) {
 	accounts := []Account{}
-	rows, err := p.Database.Query("SELECT * FROM accounts WHERE user_id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM accounts"
+	query.IncludeWhere()
+	query.Include("user_id=?", id.String())
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Account{}, err
 	}
@@ -144,28 +159,15 @@ func (p *Persister) GetAccountsByUser(id ID) ([]Account, error) {
 
 func (p *Persister) UpdateAccountTokens(account Account, access, refresh *string, expires time.Time) error {
 	var err error
-	if access != nil && refresh != nil && !expires.IsZero() {
-		stmt := `UPDATE accounts SET access_token=$1, refresh_token=$2, token_expires=$3 WHERE id=$4;`
-		_, err = p.Database.Exec(stmt, access, refresh, expires, account.ID.String())
-	} else if access != nil && refresh != nil {
-		stmt := `UPDATE accounts SET access_token=$1, refresh_token=$2 WHERE id=$3;`
-		_, err = p.Database.Exec(stmt, access, refresh, account.ID.String())
-	} else if access != nil && !expires.IsZero() {
-		stmt := `UPDATE accounts SET access_token=$1, token_expires=$2 WHERE id=$3;`
-		_, err = p.Database.Exec(stmt, access, expires, account.ID.String())
-	} else if refresh != nil && !expires.IsZero() {
-		stmt := `UPDATE accounts SET refresh_token=$1, token_expires=$2 WHERE id=$3;`
-		_, err = p.Database.Exec(stmt, refresh, expires, account.ID.String())
-	} else if access != nil {
-		stmt := `UPDATE accounts SET access_token=$1 WHERE id=$2;`
-		_, err = p.Database.Exec(stmt, access, account.ID.String())
-	} else if refresh != nil {
-		stmt := `UPDATE accounts SET refresh_token=$2 WHERE id=$2;`
-		_, err = p.Database.Exec(stmt, refresh, account.ID.String())
-	} else if !expires.IsZero() {
-		stmt := `UPDATE accounts SET token_expires=$3 WHERE id=$2;`
-		_, err = p.Database.Exec(stmt, expires, account.ID.String())
-	}
+	query := pan.New()
+	query.SQL = "UPDATE accounts SET"
+	query.IncludeIfNotNil("access_token=?", access)
+	query.IncludeIfNotNil("refresh_token=?", refresh)
+	query.IncludeIfNotEmpty("token_expires=?", expires)
+	query.FlushExpressions(" and ")
+	query.IncludeWhere()
+	query.Include("id=?", account.ID.String())
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
@@ -184,8 +186,20 @@ func (p *Persister) UpdateAccountData(account Account) (Account, error) {
 	account.Locale = googAccount.Locale
 	account.Gender = googAccount.Gender
 
-	stmt := `UPDATE accounts SET email=$1, email_verified=$2, display_name=$3, given_name=$4, family_name=$5, picture=$6, locale=$7, gender=$8 WHERE id=$9;`
-	_, err = p.Database.Exec(stmt, account.Email, account.EmailVerified, account.DisplayName, account.GivenName, account.FamilyName, account.Picture, account.Locale, account.Gender, account.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE accounts SET "
+	query.Include("email=?", account.Email)
+	query.Include("email_verified=?", account.EmailVerified)
+	query.Include("display_name=?", account.DisplayName)
+	query.Include("given_name=?", account.GivenName)
+	query.Include("family_name=?", account.FamilyName)
+	query.Include("picture=?", account.Picture)
+	query.Include("locale=?", account.Locale)
+	query.Include("gender=?", account.Gender)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", account.ID.String())
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return Account{}, err
 	}
@@ -193,19 +207,29 @@ func (p *Persister) UpdateAccountData(account Account) (Account, error) {
 }
 
 func (p *Persister) AssociateUserWithAccount(account Account, user ID) error {
-	stmt := `UPDATE accounts SET user_id=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.String(), account.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE accounts SET "
+	query.Include("user_id=?", user.String())
+	query.IncludeWhere()
+	query.Include("id=?", account.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) DeleteAccount(account Account) error {
-	stmt := `DELETE FROM accounts WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, account.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM accounts"
+	query.IncludeWhere()
+	query.Include("id=?", account.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) DeleteAccounts(user User) error {
-	stmt := `DELETE FROM accounts WHERE user_id=$1;`
-	_, err := p.Database.Exec(stmt, user.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM accounts"
+	query.IncludeWhere()
+	query.Include("user_id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

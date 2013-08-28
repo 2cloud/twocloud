@@ -122,56 +122,46 @@ func (p *Persister) CreateSubscription(amount uint64, period string, renews time
 func (p *Persister) UpdateSubscription(sub *Subscription, amount *uint64, period *string, renews *time.Time, notify *bool, campaign, user, fundingID *ID, fundingSource *string) error {
 	query := pan.New()
 	query.SQL = "UPDATE subscriptions SET "
-	vars := []string{}
 	if amount != nil {
-		vars = append(vars, "amount=?")
-		query.Args = append(query.Args, *amount)
 		sub.Amount = *amount
+		query.Include("amount=?", sub.Amount)
 	}
 	if period != nil {
 		periodStr := strings.ToLower(*period)
 		if periodStr != "monthly" && periodStr != "yearly" {
 			return InvalidPeriodError
 		}
-		vars = append(vars, "period=?")
-		query.Args = append(query.Args, periodStr)
 		sub.Period = *period
+		query.Include("period=?", sub.Period)
 	}
 	if renews != nil {
-		vars = append(vars, "renews=?")
-		query.Args = append(query.Args, *renews)
 		sub.Renews = *renews
+		query.Include("renews=?", sub.Renews)
 	}
 	if notify != nil {
-		vars = append(vars, "notify_on_renewal=?")
-		query.Args = append(query.Args, *notify)
 		sub.NotifyOnRenewal = *notify
+		query.Include("notify_on_renewal=?", sub.NotifyOnRenewal)
 	}
 	if campaign != nil {
-		vars = append(vars, "campaign_id=?")
-		query.Args = append(query.Args, campaign.String())
 		sub.CampaignID = *campaign
+		query.Include("campaign_id=?", sub.CampaignID.String())
 	}
 	if user != nil {
-		vars = append(vars, "user_id=?")
-		query.Args = append(query.Args, user.String())
 		sub.UserID = *user
+		query.Include("user_id=?", sub.UserID.String())
 	}
 	if fundingID != nil {
-		vars = append(vars, "funding_id=?")
-		query.Args = append(query.Args, fundingID.String())
 		sub.FundingID = *fundingID
+		query.Include("funding_id=?", sub.FundingID.String())
 	}
 	if fundingSource != nil {
-		vars = append(vars, "funding_source=?")
-		query.Args = append(query.Args, *fundingSource)
 		sub.FundingSource = *fundingSource
+		query.Include("funding_source=?", sub.FundingSource)
 	}
-	query.SQL += strings.Join(vars, " and ") + " "
+	query.FlushExpressions(", ")
 	query.IncludeWhere()
-	query.SQL += "id=?"
-	query.Args = append(query.Args, sub.ID.String())
-	_, err := p.Database.Exec(query.String(), query.Args...)
+	query.Include("id=?", sub.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
@@ -183,29 +173,25 @@ func (p *Persister) GetSubscriptionsByExpiration(status string, after, before ID
 		query.IncludeWhere()
 		status = strings.ToLower(status)
 		if status == "renewing" {
-			query.SQL += "renews < ?"
-			query.Args = append(query.Args, time.Now())
+			query.Include("renews < ?", time.Now())
 		} else if status == "renewing_soon" {
-			query.SQL += "renews > ? AND renews < ?"
-			query.Args = append(query.Args, time.Now(), time.Now().Add(24*time.Hour))
+			query.Include("renews > ? and renews < ?", time.Now(), time.Now().Add(24*time.Hour))
 		} else {
 			return subscriptions, InvalidStatusError
 		}
 	}
 	if !after.IsZero() {
 		query.IncludeWhere()
-		query.SQL += "id > ?"
-		query.Args = append(query.Args, after.String())
+		query.Include("id > ?", after.String())
 	}
 	if !before.IsZero() {
 		query.IncludeWhere()
-		query.SQL += "id < ?"
-		query.Args = append(query.Args, before.String())
+		query.Include("id < ?", before.String())
 	}
-	query.IncludeOrder()
-	query.SQL += "renews DESC"
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("renews DESC")
 	query.IncludeLimit(count)
-	rows, err := p.Database.Query(query.String(), query.Args...)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return subscriptions, err
 	}
@@ -226,22 +212,13 @@ func (p *Persister) GetSubscriptionsByUser(user ID, after, before ID, count int)
 	query := pan.New()
 	query.SQL = "SELECT * FROM subscriptions"
 	query.IncludeWhere()
-	query.SQL += "user_id=?"
-	query.Args = append(query.Args, user.String())
-	if !after.IsZero() {
-		query.IncludeWhere()
-		query.SQL += "id > ?"
-		query.Args = append(query.Args, after.String())
-	}
-	if !before.IsZero() {
-		query.IncludeWhere()
-		query.SQL += "id < ?"
-		query.Args = append(query.Args, before.String())
-	}
-	query.IncludeOrder()
-	query.SQL += "renews DESC"
+	query.Include("user_id=?", user.String())
+	query.IncludeIfNotEmpty("id > ?", after)
+	query.IncludeIfNotEmpty("id < ?", before)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("renews DESC")
 	query.IncludeLimit(count)
-	rows, err := p.Database.Query(query.String(), query.Args...)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return subscriptions, err
 	}
@@ -262,9 +239,8 @@ func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 	query := pan.New()
 	query.SQL = "SELECT * FROM subscriptions"
 	query.IncludeWhere()
-	query.SQL += "id=?"
-	query.Args = append(query.Args, id.String())
-	row := p.Database.QueryRow(query.String(), query.Args...)
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := subscription.fromRow(row)
 	if err != nil {
 		return nil, err
@@ -276,9 +252,8 @@ func (p *Persister) CancelSubscription(id ID) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM subscriptions"
 	query.IncludeWhere()
-	query.SQL += "id=?"
-	query.Args = append(query.Args, id.String())
-	_, err := p.Database.Exec(query.String(), query.Args...)
+	query.Include("id=?", id.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
@@ -286,8 +261,7 @@ func (p *Persister) cancelSubscriptionsByUser(user ID) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM subscriptions"
 	query.IncludeWhere()
-	query.SQL += "user_id=?"
-	query.Args = append(query.Args, user.String())
-	_, err := p.Database.Exec(query.String(), query.Args...)
+	query.Include("user_id=?", user.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
-	"strconv"
+	"secondbit.org/pan"
 	"strings"
 	"time"
 )
@@ -18,6 +18,8 @@ var CampaignTableCreateStatement = `CREATE TABLE campaigns (
 	auxilliary bool default false,
 	starts timestamp default CURRENT_TIMESTAMP,
 	ends timestamp);`
+
+var MAXINT = 2147483647
 
 type Campaign struct {
 	ID          ID        `json:"id,omitempty"`
@@ -57,43 +59,36 @@ func (p *Persister) GetCampaigns(current, aux *bool, before, after ID, count int
 	campaigns := []Campaign{}
 	var rows *sql.Rows
 	var err error
-	keys := []string{}
-	values := []interface{}{}
+	query := pan.New()
+	query.SQL = "SELECT * FROM campaigns"
 	if current != nil {
+		query.IncludeWhere()
 		if *current {
-			keys = append(keys, "starts <", "ends >")
-			values = append(values, time.Now(), time.Now())
+			query.Include("starts < ? and ends > ?", time.Now(), time.Now())
 		} else {
-			keys = append(keys, "ends <")
-			values = append(values, time.Now())
+			query.Include("ends < ?", time.Now())
 		}
 	}
 	if aux != nil {
-		keys = append(keys, "auxilliary =")
-		values = append(values, *aux)
+		query.IncludeWhere()
+		query.Include("auxilliary=?", *aux)
 	}
 	if !before.IsZero() {
-		keys = append(keys, "id <")
-		values = append(values, before.String())
+		query.IncludeWhere()
+		query.Include("id < ?", before.String())
 	}
 	if !after.IsZero() {
-		keys = append(keys, "id >")
-		values = append(values, after.String())
+		query.IncludeWhere()
+		query.Include("id > ?", after.String())
 	}
 	if admin && current != nil {
-		keys = append(keys, "starts <")
-		values = append(values, time.Now())
+		query.IncludeWhere()
+		query.Include("starts < ?", time.Now())
 	}
-	query := "SELECT * FROM campaigns WHERE "
-	for index, key := range keys {
-		query = query + key + " $" + strconv.Itoa(index) + " "
-		if index < len(keys) {
-			query = query + "and "
-		}
-	}
-	query = query + "ORDER BY starts LIMIT $5"
-	values = append(values, count)
-	rows, err = p.Database.Query(query, values...)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("starts")
+	query.IncludeLimit(count)
+	rows, err = p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Campaign{}, err
 	}
@@ -111,13 +106,14 @@ func (p *Persister) GetCampaigns(current, aux *bool, before, after ID, count int
 
 func (p *Persister) GetCampaign(id ID, admin bool) (Campaign, error) {
 	var campaign Campaign
-	query := "SELECT * FROM campaigns WHERE id=$1"
-	values := []interface{}{id.String()}
+	query := pan.New()
+	query.SQL = "SELECT * FROM campaigns"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
 	if !admin {
-		query = query + " and starts <= $2"
-		values = append(values, time.Now())
+		query.Include("starts <= ?", time.Now())
 	}
-	row := p.Database.QueryRow(query, values...)
+	row := p.Database.QueryRow(query.Generate(" and "), query.Args...)
 	err := campaign.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = CampaignNotFoundError
@@ -150,78 +146,88 @@ func (p *Persister) AddCampaign(title, description string, goal int, aux bool, s
 		Starts:      starts,
 		Ends:        ends,
 	}
-	if !starts.IsZero() && !ends.IsZero() {
-		stmt := `INSERT INTO campaigns VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9);`
-		_, err = p.Database.Exec(stmt, campaign.ID.String(), campaign.Title, campaign.Description, campaign.Goal, 0, nil, campaign.Auxilliary, campaign.Starts, campaign.Ends, nil)
-	} else if !starts.IsZero() {
-		stmt := `INSERT INTO campaigns VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9);`
-		_, err = p.Database.Exec(stmt, campaign.ID.String(), campaign.Title, campaign.Description, campaign.Goal, 0, nil, campaign.Auxilliary, campaign.Starts, nil, nil)
-	} else if !ends.IsZero() {
-		stmt := `INSERT INTO campaigns VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9);`
-		_, err = p.Database.Exec(stmt, campaign.ID.String(), campaign.Title, campaign.Description, campaign.Goal, 0, nil, campaign.Auxilliary, nil, campaign.Ends, nil)
-	} else {
-		stmt := `INSERT INTO campaigns VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9);`
-		_, err = p.Database.Exec(stmt, campaign.ID.String(), campaign.Title, campaign.Description, campaign.Goal, 0, nil, campaign.Auxilliary, nil, nil, nil)
+	var startsPtr, endsPtr *time.Time
+	if !starts.IsZero() {
+		startsPtr = &starts
 	}
+	if !ends.IsZero() {
+		endsPtr = &ends
+	}
+	query := pan.New()
+	query.SQL = "INSERT INTO campaigns VALUES("
+	query.Include("?", campaign.ID.String())
+	query.Include("?", campaign.Title)
+	query.Include("?", campaign.Description)
+	query.Include("?", campaign.Goal)
+	query.Include("?", 0)
+	query.Include("?", campaign.Auxilliary)
+	query.Include("?", startsPtr)
+	query.Include("?", endsPtr)
+	query.FlushExpressions(", ")
+	query.SQL += ")"
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return campaign, err
 }
 
 func (p *Persister) UpdateCampaign(campaign *Campaign, title, description *string, goal *int, aux *bool, starts, ends *time.Time) error {
-	changedKeys := []string{}
-	changedValues := []interface{}{}
+	query := pan.New()
+	query.SQL = "UPDATE campaigns SET "
 	if title != nil {
 		campaign.Title = strings.TrimSpace(*title)
-		changedKeys = append(changedKeys, "title")
-		changedValues = append(changedValues, campaign.Title)
+		query.Include("title=?", campaign.Title)
 	}
 	if description != nil {
 		campaign.Description = strings.TrimSpace(*description)
-		changedKeys = append(changedKeys, "description")
-		changedValues = append(changedValues, campaign.Description)
+		query.Include("description=?", campaign.Description)
 	}
 	if goal != nil {
 		campaign.Goal = *goal
-		changedKeys = append(changedKeys, "goal")
-		changedValues = append(changedValues, campaign.Goal)
+		query.Include("goal=?", campaign.Goal)
 	}
 	if aux != nil {
 		campaign.Auxilliary = *aux
-		changedKeys = append(changedKeys, "auxilliary")
-		changedValues = append(changedValues, campaign.Auxilliary)
+		query.Include("auxilliary=?", campaign.Auxilliary)
 	}
 	if starts != nil {
 		campaign.Starts = *starts
-		changedKeys = append(changedKeys, "starts")
-		changedValues = append(changedValues, campaign.Starts)
+		query.Include("starts=?", campaign.Starts)
 	}
 	if ends != nil {
 		campaign.Ends = *ends
-		changedKeys = append(changedKeys, "ends")
-		changedValues = append(changedValues, campaign.Ends)
+		query.Include("ends=?", campaign.Ends)
 	}
-	stmt := `UPDATE campaigns SET`
-	for index, value := range changedKeys {
-		stmt += " " + value + "=$" + strconv.Itoa(index+1)
-		if index+1 < len(changedKeys) {
-			stmt += ","
-		}
-	}
-	stmt += ` WHERE id=$` + strconv.Itoa(len(changedKeys)+1)
-	changedValues = append(changedValues, campaign.ID.String())
-	_, err := p.Database.Exec(stmt, changedValues...)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", campaign.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) UpdateCampaignAmount(campaign Campaign) (Campaign, error) {
-	// TODO: get payments by campaign ID
-	// TODO: sum payments
-	// TODO: save sum to campaign.Amount
-	return campaign, nil
+	payments, err := p.GetPayments(ID(0), ID(0), MAXINT, []string{}, nil, &campaign.ID, nil) // get all payments in the campaign
+	if err != nil {
+		return campaign, nil
+	}
+	var sum int
+	for _, payment := range payments {
+		sum += payment.Amount
+	}
+	campaign.Amount = sum
+	query := pan.New()
+	query.SQL = "UPDATE campaigns SET"
+	query.Include("amount=?", campaign.Amount)
+	query.IncludeWhere()
+	query.Include("id=?", campaign.ID.String())
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	return campaign, err
 }
 
 func (p *Persister) DeleteCampaign(campaign Campaign) error {
-	stmt := `DELETE FROM campaigns WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, campaign.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM campaigns"
+	query.IncludeWhere()
+	query.Include("id=?", campaign.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}

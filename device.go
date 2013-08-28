@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
+	"secondbit.org/pan"
 	"strings"
 	"time"
 )
@@ -124,7 +125,12 @@ func (d *Device) ValidClientType() bool {
 
 func (p *Persister) GetDevicesByUser(user User) ([]Device, error) {
 	devices := []Device{}
-	rows, err := p.Database.Query("SELECT * FROM devices WHERE user_id=$1 ORDER BY last_seen DESC", user.ID.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM devices"
+	query.IncludeWhere()
+	query.Include("user_id=?", user.ID.String())
+	query.IncludeOrder("last_seen DESC")
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Device{}, err
 	}
@@ -142,7 +148,11 @@ func (p *Persister) GetDevicesByUser(user User) ([]Device, error) {
 
 func (p *Persister) GetDevice(id ID) (Device, error) {
 	var device Device
-	row := p.Database.QueryRow("SELECT * FROM devices WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM devices"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := device.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = DeviceNotFoundError
@@ -176,8 +186,21 @@ func (p *Persister) AddDevice(name, clientType, ip string, gcmKey *string, user 
 	if !device.ValidClientType() {
 		return Device{}, InvalidClientType
 	}
-	stmt := `INSERT INTO devices VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
-	_, err = p.Database.Exec(stmt, device.ID.String(), device.Name, device.ClientType, device.LastSeen, device.LastIP, device.Created, gcmKey, nil, nil, device.UserID.String())
+	query := pan.New()
+	query.SQL = "INSERT INTO devices VALUES("
+	query.Include("?", device.ID.String())
+	query.Include("?", device.Name)
+	query.Include("?", device.ClientType)
+	query.Include("?", device.LastSeen)
+	query.Include("?", device.LastIP)
+	query.Include("?", device.Created)
+	query.Include("?", gcmKey)
+	query.Include("?", nil)
+	query.Include("?", nil)
+	query.Include("?", device.UserID.String())
+	query.FlushExpressions(", ")
+	query.SQL += ")"
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return device, err
 }
 
@@ -209,44 +232,30 @@ func (p *Persister) UpdateDevice(device *Device, name, clientType, gcmKey *strin
 	if !device.ValidClientType() {
 		return InvalidClientType
 	}
-	if gcmKey != nil && clientType != nil && name != nil {
-		stmt := `UPDATE devices SET name=$1, client_type=$2, gcm_key=$3 WHERE id=$4;`
-		_, err := p.Database.Exec(stmt, device.Name, device.ClientType, device.Pushers.GCM.Key, device.ID.String())
-		return err
-	} else if gcmKey != nil && clientType != nil {
-		stmt := `UPDATE devices SET client_type=$1, gcm_key=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, device.ClientType, device.Pushers.GCM.Key, device.ID.String())
-		return err
-	} else if gcmKey != nil && name != nil {
-		stmt := `UPDATE devices SET name=$1, gcm_key=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, device.Name, device.Pushers.GCM.Key, device.ID.String())
-		return err
-	} else if name != nil && clientType != nil {
-		stmt := `UPDATE devices SET name=$1, client_type=$2, WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, device.Name, device.ClientType, device.ID.String())
-		return err
-	} else if name != nil {
-		stmt := `UPDATE devices SET name=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, device.Name, device.ID.String())
-		return err
-	} else if clientType != nil {
-		stmt := `UPDATE devices SET client_type=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, device.ClientType, device.ID.String())
-		return err
-	} else if gcmKey != nil {
-		stmt := `UPDATE devices SET gcm_key=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, device.Pushers.GCM.Key, device.ID.String())
-		return err
-	}
-	return nil
+	query := pan.New()
+	query.SQL = "UPDATE devices SET"
+	query.IncludeIfNotNil("gcm_key=?", gcmKey)
+	query.IncludeIfNotNil("client_type=?", clientType)
+	query.IncludeIfNotNil("name=?", device.Name)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", device.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
 }
 
 func (p *Persister) UpdateDeviceLastSeen(device Device, ip string) (Device, error) {
 	now := time.Now()
 	device.LastSeen = now
 	device.LastIP = ip
-	stmt := `UPDATE devices SET last_seen=$1, last_ip=$2 WHERE id=$3;`
-	_, err := p.Database.Exec(stmt, device.LastSeen, device.LastIP, device.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE devices SET"
+	query.Include("last_seen=?", device.LastSeen)
+	query.Include("last_ip=?", device.LastIP)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", device.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return device, err
 }
 
@@ -263,31 +272,35 @@ func (p *Persister) updateDevicePusherLastUsed(device Device, pusher string) err
 	if device.Pushers == nil {
 		device.Pushers = &Pushers{}
 	}
+	query := pan.New()
+	query.SQL = "UPDATE devices SET"
 	if pusher == "gcm" {
 		if device.Pushers.GCM == nil {
 			device.Pushers.GCM = &Pusher{}
 		}
 		device.Pushers.GCM.LastUsed = now
-		stmt := `UPDATE devices SET gcm_last_used=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, device.Pushers.GCM.LastUsed, device.ID.String())
-		return err
+		query.Include("gcm_last_used=?", device.Pushers.GCM.LastUsed)
 	} else if pusher == "websockets" {
 		if device.Pushers.WebSockets == nil {
 			device.Pushers.WebSockets = &Pusher{}
 		}
 		device.Pushers.WebSockets.LastUsed = now
-		stmt := `UPDATE devices SET websockets_last_used=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, device.Pushers.WebSockets.LastUsed, device.ID.String())
-		return err
+		query.Include("websockets_last_used=?", device.Pushers.WebSockets.LastUsed)
 	} else {
 		return InvalidPusherType
 	}
-	return nil
+	query.IncludeWhere()
+	query.Include("id=?", device.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
 }
 
 func (p *Persister) DeleteDevice(device Device) error {
-	stmt := `DELETE FROM devices WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, device.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM devices"
+	query.IncludeWhere()
+	query.Include("id=?", device.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}

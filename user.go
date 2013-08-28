@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"secondbit.org/pan"
 	"strings"
 	"time"
 )
@@ -137,8 +138,12 @@ func (p *Persister) Authenticate(username, secret string) (User, error) {
 
 func (p *Persister) updateUserLastActive(user *User) error {
 	user.LastActive = time.Now()
-	stmt := `UPDATE users SET last_active=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.LastActive, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("last_active=?", user.LastActive)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
@@ -188,8 +193,23 @@ func (p *Persister) Register(username, email string, given_name, family_name *st
 		IsAdmin:           is_admin,
 		ReceiveNewsletter: newsletter,
 	}
-	stmt := `INSERT INTO users VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
-	_, err = p.Database.Exec(stmt, user.ID.String(), user.Username, user.Name.Given, user.Name.Family, user.Email, user.EmailUnconfirmed, user.EmailConfirmation, user.Secret, user.Joined, user.LastActive, user.IsAdmin, user.ReceiveNewsletter)
+	query := pan.New()
+	query.SQL = "INSERT INTO users VALUES("
+	query.Include("?", user.ID.String())
+	query.Include("?", user.Username)
+	query.Include("?", user.Name.Given)
+	query.Include("?", user.Name.Family)
+	query.Include("?", user.Email)
+	query.Include("?", user.EmailUnconfirmed)
+	query.Include("?", user.EmailConfirmation)
+	query.Include("?", user.Secret)
+	query.Include("?", user.Joined)
+	query.Include("?", user.LastActive)
+	query.Include("?", user.IsAdmin)
+	query.Include("?", user.ReceiveNewsletter)
+	query.FlushExpressions(", ")
+	query.SQL += ")"
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		if isUniqueConflictError(err) {
 			return User{}, UsernameTakenError
@@ -201,31 +221,42 @@ func (p *Persister) Register(username, email string, given_name, family_name *st
 
 func (p *Persister) GetUser(id ID) (User, error) {
 	var user User
-	row := p.Database.QueryRow("SELECT * FROM users WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM users"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := user.fromRow(row)
 	return user, err
 }
 
 func (p *Persister) GetUserByUsername(username string) (User, error) {
 	var user User
-	row := p.Database.QueryRow("SELECT * FROM users WHERE LOWER(username)=LOWER($1)", username)
+	query := pan.New()
+	query.SQL = "SELECT * FROM users"
+	query.IncludeWhere()
+	query.Include("LOWER(username)=LOWER(?)", username)
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := user.fromRow(row)
 	return user, err
 }
 
 func (p *Persister) GetUsersByActivity(count int, after, before time.Time) ([]User, error) {
 	users := []User{}
-	var rows *sql.Rows
-	var err error
-	if !after.IsZero() && !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM users WHERE last_active > $1 and last_active < $2 ORDER BY last_active DESC LIMIT $3", after, before, count)
-	} else if !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM users WHERE last_active > $1 ORDER BY last_active DESC LIMIT $2", after, count)
-	} else if !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM users WHERE last_active < $1 ORDER BY last_active DESC LIMIT $2", before, count)
-	} else {
-		rows, err = p.Database.Query("SELECT * FROM users ORDER BY last_active DESC LIMIT $1", count)
+	query := pan.New()
+	query.SQL = "SELECT * FROM users"
+	if !after.IsZero() {
+		query.IncludeWhere()
+		query.Include("last_active > ?", after)
 	}
+	if !before.IsZero() {
+		query.IncludeWhere()
+		query.Include("last_active < ?", before)
+	}
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("last_active DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []User{}, err
 	}
@@ -243,17 +274,20 @@ func (p *Persister) GetUsersByActivity(count int, after, before time.Time) ([]Us
 
 func (p *Persister) GetUsersByJoinDate(count int, after, before time.Time) ([]User, error) {
 	users := []User{}
-	var rows *sql.Rows
-	var err error
-	if !after.IsZero() && !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM users WHERE joined > $1 and joined < $2 ORDER BY joined DESC LIMIT $3", after, before, count)
-	} else if !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM users WHERE joined > $1 ORDER BY joined DESC LIMIT $2", after, count)
-	} else if !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM users WHERE joined < $1 ORDER BY joined DESC LIMIT $2", before, count)
-	} else {
-		rows, err = p.Database.Query("SELECT * FROM users ORDER BY joined DESC LIMIT $1", count)
+	query := pan.New()
+	query.SQL = "SELECT * FROM users"
+	if !after.IsZero() {
+		query.IncludeWhere()
+		query.Include("joined > ?", after)
 	}
+	if !before.IsZero() {
+		query.IncludeWhere()
+		query.Include("joined < ?", before)
+	}
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("joined DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []User{}, err
 	}
@@ -270,6 +304,8 @@ func (p *Persister) GetUsersByJoinDate(count int, after, before time.Time) ([]Us
 }
 
 func (p *Persister) UpdateUser(user *User, email, given_name, family_name *string, newsletter *bool) error {
+	query := pan.New()
+	query.SQL = "UPDATE users SET "
 	if email != nil {
 		newEmail := strings.TrimSpace(*email)
 		if newEmail != "" {
@@ -280,90 +316,30 @@ func (p *Persister) UpdateUser(user *User, email, given_name, family_name *strin
 			user.EmailConfirmation = code
 			user.EmailUnconfirmed = true
 			user.Email = newEmail
+			query.Include("email=?", user.Email)
+			query.Include("email_confirmation=?", user.EmailConfirmation)
+			query.Include("email_unconfirmed=?", user.EmailUnconfirmed)
 		}
 	}
 	if given_name != nil {
 		tmpGivenName := strings.TrimSpace(*given_name)
 		user.Name.Given = &tmpGivenName
+		query.Include("given_name=?", user.Name.Given)
 	}
 	if family_name != nil {
 		tmpFamilyName := strings.TrimSpace(*family_name)
 		user.Name.Family = &tmpFamilyName
+		query.Include("family_name=?", user.Name.Family)
 	}
 	if newsletter != nil {
 		user.ReceiveNewsletter = *newsletter
+		query.Include("receive_newsletter=?", user.ReceiveNewsletter)
 	}
-	if email != nil && given_name != nil && family_name != nil && newsletter != nil {
-		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, given_name=$4, family_name=$5, receive_newsletter=$6 WHERE id=$7;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if email != nil && given_name != nil && family_name != nil {
-		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, given_name=$4, family_name=$5 WHERE id=$6;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Given, user.Name.Family, user.ID.String())
-		return err
-	}
-	if email != nil && family_name != nil && newsletter != nil {
-		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, family_name=$4, receive_newsletter=$5 WHERE id=$6;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if given_name != nil && family_name != nil && newsletter != nil {
-		stmt := `UPDATE users SET given_name=$1, family_name=$2, receives_newsletter=$3 WHERE id=$4;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if given_name != nil && family_name != nil {
-		stmt := `UPDATE users SET given_name=$1, family_name=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if given_name != nil && email != nil {
-		stmt := `UPDATE users SET given_name=$1, email=$2, email_confirmation=$3, email_unconfirmed=$4 WHERE id=$5;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
-		return err
-	}
-	if given_name != nil && newsletter != nil {
-		stmt := `UPDATE users SET given_name=$1, receives_newsletter=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if family_name != nil && email != nil {
-		stmt := `UPDATE users SET family_name=$1, email=$2, email_confirmation=$3, email_unconfirmed=$4 WHERE id=$5;`
-		_, err := p.Database.Exec(stmt, user.Name.Family, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
-		return err
-	}
-	if family_name != nil && newsletter != nil {
-		stmt := `UPDATE users SET family_name=$1, receives_newsletter=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, user.Name.Family, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if email != nil && newsletter != nil {
-		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3, receives_newsletter=$4 WHERE id=$5;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	if given_name != nil {
-		stmt := `UPDATE users SET given_name=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, user.Name.Given, user.ID.String())
-		return err
-	}
-	if family_name != nil {
-		stmt := `UPDATE users SET family_name=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, user.Name.Family, user.ID.String())
-		return err
-	}
-	if email != nil {
-		stmt := `UPDATE users SET email=$1, email_confirmation=$2, email_unconfirmed=$3 WHERE id=$4;`
-		_, err := p.Database.Exec(stmt, user.Email, user.EmailConfirmation, user.EmailUnconfirmed, user.ID.String())
-		return err
-	}
-	if newsletter != nil {
-		stmt := `UPDATE users SET receives_newsletter=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID.String())
-		return err
-	}
-	return nil
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
 }
 
 func (p *Persister) ResetSecret(user *User) error {
@@ -372,8 +348,12 @@ func (p *Persister) ResetSecret(user *User) error {
 		return err
 	}
 	user.Secret = secret
-	stmt := `UPDATE users SET secret=$1 WHERE id=$2;`
-	_, err = p.Database.Exec(stmt, user.Secret, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("secret=?", user.Secret)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
@@ -385,42 +365,65 @@ func (p *Persister) VerifyEmail(user *User, code string) error {
 		return InvalidConfirmationCodeError
 	}
 	user.EmailUnconfirmed = false
-	stmt := `UPDATE users SET email_unconfirmed=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, false, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("email_unconfirmed=?", user.EmailUnconfirmed)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) MakeAdmin(user *User) error {
 	user.IsAdmin = true
-	stmt := `UPDATE users SET is_admin=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("is_admin=?", user.IsAdmin)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) StripAdmin(user *User) error {
 	user.IsAdmin = false
-	stmt := `UPDATE users SET is_admin=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.IsAdmin, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("is_admin=?", user.IsAdmin)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) SubscribeToNewsletter(user *User) error {
 	user.ReceiveNewsletter = true
-	stmt := `UPDATE users SET receive_newsletter=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("receive_newsletter=?", user.ReceiveNewsletter)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) UnsubscribeFromNewsletter(user *User) error {
 	user.ReceiveNewsletter = false
-	stmt := `UPDATE users SET receive_newsletter=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, user.ReceiveNewsletter, user.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE users SET"
+	query.Include("receive_newsletter=?", user.ReceiveNewsletter)
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) DeleteUser(user User) error {
-	stmt := `DELETE FROM users WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, user.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM users"
+	query.IncludeWhere()
+	query.Include("id=?", user.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), user.ID.String())
 	if err != nil {
 		return err
 	}

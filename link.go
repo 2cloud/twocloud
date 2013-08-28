@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/PuerkitoBio/purell"
 	"github.com/lib/pq"
+	"secondbit.org/pan"
 	"time"
 )
 
@@ -117,40 +118,23 @@ var LinkNotFoundError = errors.New("Link not found.")
 
 func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after ID, count int) ([]Link, error) {
 	links := []Link{}
-	var rows *sql.Rows
-	var err error
+	query := pan.New()
+	query.SQL = "SELECT * FROM links INNER JOIN urls ON (links.url = urls.id)"
+	query.IncludeWhere()
 	switch role {
 	case RoleEither:
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender=$1 or receiver=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID.String(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender=$1 or receiver=$1) and id < $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender=$1 or receiver=$1) and id > $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 or receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID.String(), count)
-		}
+		query.Include("(sender=? or receiver=?)", device.ID.String(), device.ID.String())
 	case RoleSender:
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID.String(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender=$1 ORDER BY sent DESC LIMIT $2", device.ID.String(), count)
-		}
+		query.Include("sender=?", device.ID.String())
 	case RoleReceiver:
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID.String(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver=$1 ORDER BY sent DESC LIMIT $2", device.ID.String(), count)
-		}
+		query.Include("receiver=?", device.ID.String())
 	}
+	query.IncludeIfNotEmpty("id < ?", before)
+	query.IncludeIfNotEmpty("id > ?", after)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("sent DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Link{}, err
 	}
@@ -168,40 +152,23 @@ func (p *Persister) GetLinksByDevice(device Device, role RoleFlag, before, after
 
 func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after ID, count int) ([]Link, error) {
 	links := []Link{}
-	var rows *sql.Rows
-	var err error
+	query := pan.New()
+	query.SQL = "SELECT * FROM links INNER JOIN urls on (links.url = urls.id)"
+	query.IncludeWhere()
 	switch role {
 	case RoleEither:
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender_user=$1 or receiver_user=$1) and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID.String(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender_user=$1 or receiver_user=$1) and id < $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE (sender_user=$1 or receiver_user=$1) and id > $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 or receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID.String(), count)
-		}
+		query.Include("(sender=? or receiver=?)", user.ID.String())
 	case RoleSender:
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID.String(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE sender_user=$1 ORDER BY sent DESC LIMIT $2", user.ID.String(), count)
-		}
+		query.Include("sender=?", user.ID.String())
 	case RoleReceiver:
-		if !before.IsZero() && !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID.String(), before.String(), after.String(), count)
-		} else if !before.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), before.String(), count)
-		} else if !after.IsZero() {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), after.String(), count)
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE receiver_user=$1 ORDER BY sent DESC LIMIT $2", user.ID.String(), count)
-		}
+		query.Include("receiver=?", user.ID.String())
 	}
+	query.IncludeIfNotEmpty("id < ?", before)
+	query.IncludeIfNotEmpty("id > ?", after)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("sent DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Link{}, err
 	}
@@ -219,7 +186,11 @@ func (p *Persister) GetLinksByUser(user User, role RoleFlag, before, after ID, c
 
 func (p *Persister) GetLink(id ID) (Link, error) {
 	var link Link
-	row := p.Database.QueryRow("SELECT * FROM links INNER JOIN urls ON (links.url = urls.id) WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM links INNER JOIN urls ON (links.url = urls.id)"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := link.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = LinkNotFoundError
@@ -262,40 +233,68 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 		links[pos].ID = linkID
 		links[pos].Sent = time.Now()
 	}
+	query := pan.New()
 	for _, url := range urls {
-		stmt := `INSERT INTO urls VALUES($1, $2, $3, $4);`
-		_, err := p.Database.Exec(stmt, url.ID.String(), url.Address, url_counts[url.ID], url.FirstSeen)
+		query.SQL = "INSERT INTO urls VALUES("
+		query.Include("?", url.ID.String())
+		query.Include("?", url.Address)
+		query.Include("?", url_counts[url.ID])
+		query.Include("?", url.FirstSeen)
+		query.FlushExpressions(", ")
+		query.SQL += ")"
+		_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 		if err != nil {
 			if isUniqueConflictError(err) {
-				row := p.Database.QueryRow("SELECT * FROM urls WHERE address=$1", url.Address)
+				query.SQL = "SELECT * FROM urls"
+				query.IncludeWhere()
+				query.Include("address=?", url.Address)
+				row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 				newURL := &URL{}
 				err = newURL.fromRow(row)
 				if err != nil {
 					return []Link{}, err
 				}
 				newURL.SentCounter = newURL.SentCounter + url_counts[url.ID]
-				stmt := `UPDATE urls SET sent_counter=(sent_counter + $1) WHERE id=$2;`
-				_, err = p.Database.Exec(stmt, url_counts[url.ID], newURL.ID.String())
+				query.IncludesWhere = false
+				query.SQL = "UPDATE urls SET"
+				query.Include("sent_counter=(sent_counter + ?)", url_counts[url.ID])
+				query.IncludeWhere()
+				query.Include("id=?", newURL.ID.String())
+				_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 				if err != nil {
 					return []Link{}, err
 				}
 				for _, l := range url_links[url.ID] {
 					l.URL = newURL
 				}
+				query.IncludesWhere = false // shouldn't be necessary, but just to be safe
 			} else {
 				return []Link{}, err
 			}
 		}
 	}
 	for _, link := range links {
-		stmt := `INSERT INTO links VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
 		var read *time.Time
 		if link.TimeRead.IsZero() {
 			read = nil
 		} else {
 			read = &link.TimeRead
 		}
-		_, err := p.Database.Exec(stmt, link.ID.String(), link.URL.ID.String(), link.Unread, read, link.Sender.String(), link.SenderUser.String(), link.Receiver.String(), link.ReceiverUser.String(), link.Comment, link.Sent)
+		query.SQL = "INSERT INTO links VALUE("
+		query.Include("?", link.ID.String())
+		query.Include("?", link.URL.ID.String())
+		query.Include("?", link.Unread)
+		query.Include("?", read)
+		query.Include("?", link.Sender.String())
+		query.Include("?", link.SenderUser.String())
+		query.Include("?", link.Receiver.String())
+		query.Include("?", link.ReceiverUser.String())
+		query.Include("?", link.Comment)
+		query.Include("?", link.Sent)
+		query.FlushExpressions(", ")
+		query.SQL += ")"
+		_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+		query.IncludesWhere = false // shouldn't be necessary, but just to be safe
 		if err != nil {
 			return []Link{}, err
 		}
@@ -321,33 +320,37 @@ func (p *Persister) AddLink(address string, comment *string, sender, receiver De
 }
 
 func (p *Persister) UpdateLink(link Link, unread *bool, comment *string) (Link, error) {
-	if comment != nil && unread != nil {
-		link.Unread = *unread
+	query := pan.New()
+	query.SQL = "UPDATE links SET"
+	if comment != nil {
 		link.Comment = comment
-		stmt := `UPDATE links SET comment=$1 and unread=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, link.Comment, link.Unread, link.ID.String())
-		return link, err
-	} else if comment != nil {
-		link.Comment = comment
-		stmt := `UPDATE links SET comment=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, link.Comment, link.ID.String())
-		return link, err
-	} else if unread != nil {
-		link.Unread = *unread
-		stmt := `UPDATE links SET unread=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, link.Unread, link.ID.String())
-		return link, err
+		query.Include("comment=?", link.Comment)
 	}
-	return Link{}, nil
+	if unread != nil {
+		link.Unread = *unread
+		query.Include("unread=?", link.Unread)
+	}
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", link.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return link, err
 }
 
 func (p *Persister) DeleteLink(link Link) error {
-	stmt := `DELETE FROM links WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, link.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM links"
+	query.IncludeWhere()
+	query.Include("id=?", link.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}
-	stmt = `UPDATE urls SET sent_counter=(sent_counter - 1) WHERE ID=$1;`
-	_, err = p.Database.Exec(stmt, link.URL.ID.String())
+	query.IncludesWhere = false
+	query.SQL = "UPDATE urls SET"
+	query.Include("sent_count=(sent_counter - 1)")
+	query.IncludeWhere()
+	query.Include("ID=?", link.URL.ID.String())
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

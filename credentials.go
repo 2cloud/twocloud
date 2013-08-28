@@ -2,6 +2,7 @@ package twocloud
 
 import (
 	"math/rand"
+	"secondbit.org/pan"
 	"time"
 )
 
@@ -30,8 +31,15 @@ func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 		cred1 = tmpcred2
 		cred2 = tmpcred1
 	}
-	stmt := `INSERT INTO temp_credentials VALUES ($1, $2, $3, $4);`
-	_, err := p.Database.Exec(stmt, user.ID, cred1, cred2, time.Now().Add(time.Minute*5))
+	query := pan.New()
+	query.SQL = "INSERT INTO temp_credentials VALUES ("
+	query.Include("?", user.ID.String())
+	query.Include("?", cred1)
+	query.Include("?", cred2)
+	query.Include("?", time.Now().Add(time.Minute*5))
+	query.FlushExpressions(", ")
+	query.SQL += ")"
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return [2]string{cred1, cred2}, err
 }
 
@@ -43,7 +51,13 @@ func (p *Persister) CheckTempCredentials(cred1, cred2 string) (ID, error) {
 		secondcred = cred1
 	}
 	var userIDStr string
-	row := p.Database.QueryRow("SELECT user_id FROM temp_credentials WHERE first=$1 and second=$2 and expires > $3", firstcred, secondcred, time.Now())
+	query := pan.New()
+	query.SQL = "SELECT user_id FROM temp_credentials"
+	query.IncludeWhere()
+	query.Include("first=?", firstcred)
+	query.Include("second=?", secondcred)
+	query.Include("expires > ?", time.Now())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := row.Scan(&userIDStr)
 	if err != nil {
 		return ID(0), err
@@ -53,7 +67,10 @@ func (p *Persister) CheckTempCredentials(cred1, cred2 string) (ID, error) {
 }
 
 func (p *Persister) ClearExpiredCredentials() error {
-	stmt := `DELETE FROM temp_credentials WHERE expires < $1;`
-	_, err := p.Database.Exec(stmt, time.Now())
+	query := pan.New()
+	query.SQL = "DELETE FROM temp_credentials"
+	query.IncludeWhere()
+	query.Include("expires < ?", time.Now())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"github.com/bradrydzewski/go.stripe"
 	"github.com/lib/pq"
+	"secondbit.org/pan"
 	"time"
 )
 
@@ -48,7 +49,12 @@ func (s *Stripe) fromRow(row ScannableRow) error {
 
 func (p *Persister) GetStripeSourcesByUser(user User) ([]Stripe, error) {
 	sources := []Stripe{}
-	rows, err := p.Database.Query("SELECT * FROM stripe WHERE user_id=$1 ORDER BY last_used DESC", user.ID.String())
+	query := pan.New()
+	query.SQL += "SELECT * FROM stripe"
+	query.IncludeWhere()
+	query.Include("user_id=?", user.ID.String())
+	query.IncludeOrder("last_used DESC")
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Stripe{}, err
 	}
@@ -66,7 +72,11 @@ func (p *Persister) GetStripeSourcesByUser(user User) ([]Stripe, error) {
 
 func (p *Persister) GetStripeSource(id ID) (Stripe, error) {
 	var s Stripe
-	row := p.Database.QueryRow("SELECT * FROM stripe WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM stripe"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := s.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = FundingSourceNotFoundError
@@ -88,44 +98,55 @@ func (p *Persister) AddStripeSource(remote_id string, nickname string, user_id I
 			UserID:   user_id,
 		},
 	}
-	stmt := `INSERT INTO stripe VALUES($1, $2, $3, $4, $5, $6);`
-	_, err = p.Database.Exec(stmt, s.ID.String(), s.RemoteID, s.Nickname, s.LastUsed, s.Added, s.UserID.String())
+	query := pan.New()
+	query.SQL = "INSERT INTO stripe VALUES("
+	query.Include("?", s.ID.String())
+	query.Include("?", s.RemoteID)
+	query.Include("?", s.Nickname)
+	query.Include("?", s.LastUsed)
+	query.Include("?", s.Added)
+	query.Include("?", s.UserID.String())
+	query.FlushExpressions(", ")
+	query.SQL += ")"
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return s, err
 }
 
 func (p *Persister) UpdateStripeSource(s *Stripe, remote_id *string, nickname *string) error {
+	query := pan.New()
+	query.SQL = "UPDATE stripe SET "
 	if remote_id != nil {
 		s.RemoteID = *remote_id
+		query.Include("remote_id=?", s.RemoteID)
 	}
 	if nickname != nil {
 		s.Nickname = nickname
+		query.Include("nickname=?", s.Nickname)
 	}
-	if remote_id != nil && nickname != nil {
-		stmt := `UPDATE stripe SET nickname=$1, remote_id=$2 WHERE id=$3;`
-		_, err := p.Database.Exec(stmt, s.GetNickname(), s.RemoteID, s.ID.String())
-		return err
-	} else if remote_id != nil {
-		stmt := `UPDATE stripe SET remote_id=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, s.RemoteID, s.ID.String())
-		return err
-	} else if nickname != nil {
-		stmt := `UPDATE stripe SET nickname=$1 WHERE id=$2;`
-		_, err := p.Database.Exec(stmt, s.GetNickname(), s.ID.String())
-		return err
-	}
-	return nil
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", s.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
 }
 
 func (p *Persister) UpdateStripeSourceLastUsed(s *Stripe) error {
 	s.LastUsed = time.Now()
-	stmt := `UPDATE stripe SET last_used=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, s.LastUsed, s.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE stripe SET"
+	query.Include("last_used=?", s.LastUsed)
+	query.IncludeWhere()
+	query.Include("id=?", s.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) DeleteStripeSource(s Stripe) error {
-	stmt := `DELETE FROM stripe WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, s.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM stripe"
+	query.IncludeWhere()
+	query.Include("id=?", s.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 

@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
-	"strconv"
+	"secondbit.org/pan"
 	"strings"
 	"time"
 )
@@ -89,17 +89,16 @@ var InvalidBroadcastFilter = errors.New("Invalid broadcast filter.")
 var NotificationNotFoundError = errors.New("Notification not found.")
 
 func (p *Persister) GetNotificationsByDevice(device Device, before, after ID, count int) ([]Notification, error) {
-	var rows *sql.Rows
-	var err error
-	if !before.IsZero() && !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM notifications WHERE destination=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", device.ID.String(), before.String(), after.String(), count)
-	} else if !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM notifications WHERE destination=$1 and id < $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), before.String(), count)
-	} else if !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM notifications WHERE destination=$1 and id > $2 ORDER BY sent DESC LIMIT $3", device.ID.String(), after.String(), count)
-	} else {
-		rows, err = p.Database.Query("SELECT * FROM destination WHERE sender=$1 ORDER BY sent DESC LIMIT $2", device.ID.String(), count)
-	}
+	query := pan.New()
+	query.SQL = "SELECT * FROM notifications"
+	query.IncludeWhere()
+	query.Include("destination=?", device.ID.String())
+	query.IncludeIfNotEmpty("id < ?", before)
+	query.IncludeIfNotEmpty("id > ?", after)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("sent DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Notification{}, nil
 	}
@@ -117,17 +116,16 @@ func (p *Persister) GetNotificationsByDevice(device Device, before, after ID, co
 }
 
 func (p *Persister) GetNotificationsByUser(user User, before, after ID, count int) ([]Notification, error) {
-	var rows *sql.Rows
-	var err error
-	if !before.IsZero() && !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM notifications WHERE destination=$1 and id < $2 and id > $3 ORDER BY sent DESC LIMIT $4", user.ID.String(), before.String(), after.String(), count)
-	} else if !before.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM notifications WHERE destination=$1 and id < $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), before.String(), count)
-	} else if !after.IsZero() {
-		rows, err = p.Database.Query("SELECT * FROM notifications WHERE destination=$1 and id > $2 ORDER BY sent DESC LIMIT $3", user.ID.String(), after.String(), count)
-	} else {
-		rows, err = p.Database.Query("SELECT * FROM destination WHERE sender=$1 ORDER BY sent DESC LIMIT $2", user.ID.String(), count)
-	}
+	query := pan.New()
+	query.SQL = "SELECT * FROM notifications"
+	query.IncludeWhere()
+	query.Include("destination=?", user.ID.String())
+	query.IncludeIfNotEmpty("id < ?", before)
+	query.IncludeIfNotEmpty("id > ?", after)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("sent DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Notification{}, nil
 	}
@@ -146,7 +144,11 @@ func (p *Persister) GetNotificationsByUser(user User, before, after ID, count in
 
 func (p *Persister) GetNotification(id ID) (Notification, error) {
 	var notification Notification
-	row := p.Database.QueryRow("SELECT * FROM notifications WHERE id=$1", id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM notifications"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := notification.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = NotificationNotFoundError
@@ -155,7 +157,7 @@ func (p *Persister) GetNotification(id ID) (Notification, error) {
 }
 
 func (p *Persister) SendNotificationsToUser(user User, notifications []Notification) ([]Notification, error) {
-	stmt := `INSERT INTO notifications VALUE($1, $2, $3, $4, $5, $6, $7, $8, $9);`
+	query := pan.New()
 	for pos, _ := range notifications {
 		id, err := p.GetID()
 		if err != nil {
@@ -164,7 +166,19 @@ func (p *Persister) SendNotificationsToUser(user User, notifications []Notificat
 		notifications[pos].ID = id
 		notifications[pos].Destination = user.ID
 		notifications[pos].DestinationType = "user"
-		_, err = p.Database.Exec(stmt, notifications[pos].ID.String(), notifications[pos].Destination.String(), notifications[pos].DestinationType, notifications[pos].Nature, notifications[pos].Unread, notifications[pos].ReadBy, notifications[pos].TimeRead, notifications[pos].Sent, notifications[pos].Body)
+		query.SQL = "INSERT INTO notifications VALUES("
+		query.Include("?", notifications[pos].ID.String())
+		query.Include("?", notifications[pos].Destination.String())
+		query.Include("?", notifications[pos].DestinationType)
+		query.Include("?", notifications[pos].Nature)
+		query.Include("?", notifications[pos].Unread)
+		query.Include("?", notifications[pos].ReadBy)
+		query.Include("?", notifications[pos].TimeRead)
+		query.Include("?", notifications[pos].Sent)
+		query.Include("?", notifications[pos].Body)
+		query.FlushExpressions(", ")
+		query.SQL += ")"
+		_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 		if err != nil {
 			return []Notification{}, err
 		}
@@ -173,7 +187,7 @@ func (p *Persister) SendNotificationsToUser(user User, notifications []Notificat
 }
 
 func (p *Persister) SendNotificationsToDevice(device Device, notifications []Notification) ([]Notification, error) {
-	stmt := `INSERT INTO notifications VALUE($1, $2, $3, $4, $5, $6, $7, $8, $9);`
+	query := pan.New()
 	for pos, _ := range notifications {
 		id, err := p.GetID()
 		if err != nil {
@@ -182,7 +196,19 @@ func (p *Persister) SendNotificationsToDevice(device Device, notifications []Not
 		notifications[pos].ID = id
 		notifications[pos].Destination = device.ID
 		notifications[pos].DestinationType = "device"
-		_, err = p.Database.Exec(stmt, notifications[pos].ID.String(), notifications[pos].Destination.String(), notifications[pos].DestinationType, notifications[pos].Nature, notifications[pos].Unread, notifications[pos].ReadBy, notifications[pos].TimeRead, notifications[pos].Sent, notifications[pos].Body)
+		query.SQL = "INSERT INTO notifications VALUES("
+		query.Include("?", notifications[pos].ID.String())
+		query.Include("?", notifications[pos].Destination.String())
+		query.Include("?", notifications[pos].DestinationType)
+		query.Include("?", notifications[pos].Nature)
+		query.Include("?", notifications[pos].Unread)
+		query.Include("?", notifications[pos].ReadBy)
+		query.Include("?", notifications[pos].TimeRead)
+		query.Include("?", notifications[pos].Sent)
+		query.Include("?", notifications[pos].Body)
+		query.FlushExpressions(", ")
+		query.SQL += ")"
+		_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 		if err != nil {
 			return []Notification{}, err
 		}
@@ -195,9 +221,12 @@ func (p *Persister) BroadcastNotifications(notifications []Notification, filter 
 		return []Notification{}, InvalidBroadcastFilter
 	}
 	response := []Notification{}
+	query := pan.New()
 	switch filter.Targets {
 	case "users":
-		rows, err := p.Database.Query("SELECT * FROM users ORDER BY last_active DESC")
+		query.SQL = "SELECT * FROM users"
+		query.IncludeOrder("last_active DESC")
+		rows, err := p.Database.Query(query.Generate(" "))
 		if err != nil {
 			return []Notification{}, err
 		}
@@ -214,21 +243,21 @@ func (p *Persister) BroadcastNotifications(notifications []Notification, filter 
 			response = append(response, notifs...)
 		}
 	case "devices":
-		var rows *sql.Rows
-		var err error
+		query.SQL = "SELECT * FROM devices"
 		if len(filter.ClientType) > 1 {
-			queryElems := []string{}
-			queryVals := []interface{}{}
+			query.IncludeWhere()
+			queryKeys := make([]string, len(filter.ClientType))
+			queryVals := make([]interface{}, len(filter.ClientType))
 			for pos, val := range filter.ClientType {
-				queryElems = append(queryElems, "$"+strconv.Itoa(pos))
-				queryVals = append(queryVals, val)
+				queryKeys[pos] = "?"
+				queryVals[pos] = val
 			}
-			rows, err = p.Database.Query("SELECT * FROM devices WHERE client_type IN("+strings.Join(queryElems, ", ")+") ORDER BY last_seen DESC", queryVals...)
+			query.Include("client_type IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 		} else if len(filter.ClientType) == 1 {
-			rows, err = p.Database.Query("SELECT * FROM devices WHERE client_type=$1 ORDER BY last_seen DESC", filter.ClientType[0])
-		} else {
-			rows, err = p.Database.Query("SELECT * FROM devices ORDER BY last_seen DESC")
+			query.Include("client_type=?", filter.ClientType[0])
 		}
+		query.IncludeOrder("last_seen DESC")
+		rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 		if err != nil {
 			return []Notification{}, err
 		}
@@ -250,13 +279,20 @@ func (p *Persister) BroadcastNotifications(notifications []Notification, filter 
 
 func (p *Persister) MarkNotificationRead(notification Notification) (Notification, error) {
 	notification.Unread = false
-	stmt := `UPDATE notifications SET unread=$1 WHERE id=$2;`
-	_, err := p.Database.Exec(stmt, notification.Unread, notification.ID.String())
+	query := pan.New()
+	query.SQL = "UPDATE notifications SET"
+	query.Include("unread=?", notification.Unread)
+	query.IncludeWhere()
+	query.Include("id=?", notification.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return notification, err
 }
 
 func (p *Persister) DeleteNotification(notification Notification) error {
-	stmt := `DELETE FROM notifications WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, notification.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM notifications"
+	query.IncludeWhere()
+	query.Include("id=?", notification.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

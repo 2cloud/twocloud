@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/lib/pq"
-	"strconv"
+	"secondbit.org/pan"
 	"strings"
 	"time"
 )
@@ -107,48 +107,41 @@ func (p *Persister) GetPayments(before, after ID, count int, status []string, us
 		}
 	}
 	payments := []Payment{}
-	var rows *sql.Rows
-	var err error
-	keys := []string{}
-	values := []interface{}{}
+	query := pan.New()
+	query.SQL = "SELECT * FROM payments"
 	if !before.IsZero() {
-		keys = append(keys, "id <")
-		values = append(values, before.String())
+		query.IncludeWhere()
+		query.Include("id < ?", before.String())
 	}
 	if !after.IsZero() {
-		keys = append(keys, "id >")
-		values = append(values, after.String())
+		query.IncludeWhere()
+		query.Include("id > ?", after.String())
 	}
 	if user != nil {
-		keys = append(keys, "user_id =")
-		values = append(values, user.String())
+		query.IncludeWhere()
+		query.Include("user_id=?", user.String())
 	}
 	if campaign != nil {
-		keys = append(keys, "campaign =")
-		values = append(values, campaign.String())
+		query.IncludeWhere()
+		query.Include("campaign=?", campaign.String())
 	}
 	if funding_source != nil {
-		keys = append(keys, "funding_source_id =")
-		values = append(values, funding_source.String())
+		query.IncludeWhere()
+		query.Include("funding_source_id=?", funding_source.String())
 	}
 	if len(status) > 0 {
-		keys = append(keys, "status IN ")
-		//TODO: This is HORRIBLE. These should each be separate values that are substituted individually to avoid SQL injection. This method should be used with caution and only on validated things until we get better SQL generation in place.
-		values = append(values, "("+strings.Join(status, ", ")+")")
-	}
-	query := "SELECT * FROM payments"
-	if len(keys) > 0 {
-		query = query + " WHERE "
-	}
-	for index, key := range keys {
-		query = query + key + " $" + strconv.Itoa(index+1) + " "
-		if index < len(keys) {
-			query = query + "and "
+		statusKeys := make([]string, len(status))
+		statuses := make([]interface{}, len(status))
+		for i, v := range status {
+			statusKeys[i] = "?"
+			statuses[i] = v
 		}
+		query.Include("("+strings.Join(statusKeys, ", ")+")", statuses...)
 	}
-	values = append(values, count)
-	query = query + "ORDER BY created DESC LIMIT $" + strconv.Itoa(len(keys))
-	rows, err = p.Database.Query(query, values...)
+	query.FlushExpressions(" and ")
+	query.IncludeOrder("created DESC")
+	query.IncludeLimit(count)
+	rows, err := p.Database.Query(query.Generate(" "), query.Args...)
 	if err != nil {
 		return []Payment{}, err
 	}
@@ -166,8 +159,11 @@ func (p *Persister) GetPayments(before, after ID, count int, status []string, us
 
 func (p *Persister) GetPayment(id ID) (Payment, error) {
 	var payment Payment
-	query := "SELECT * FROM payments WHERE id=$1"
-	row := p.Database.QueryRow(query, id.String())
+	query := pan.New()
+	query.SQL = "SELECT * FROM payments"
+	query.IncludeWhere()
+	query.Include("id=?", id.String())
+	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := payment.fromRow(row)
 	if err == sql.ErrNoRows {
 		err = PaymentNotFoundError
@@ -195,54 +191,57 @@ func (p *Persister) AddPayment(amount int, message string, userID, fsID, campaig
 		Campaign:        campaignID,
 		Status:          PAYMENT_STATUS_PENDING,
 	}
-	stmt := `INSERT INTO payments VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);`
-	_, err = p.Database.Exec(stmt, payment.ID.String(), payment.RemoteID, payment.Amount, payment.Message, payment.Created, nil, payment.UserID.String(), payment.FundingSourceID.String(), payment.Anonymous, payment.Campaign, payment.Status, payment.Error)
+	query := pan.New()
+	query.SQL = "INSERT INTO payments VALUES("
+	query.Include("?", payment.ID.String())
+	query.Include("?", payment.RemoteID)
+	query.Include("?", payment.Amount)
+	query.Include("?", payment.Message)
+	query.Include("?", payment.Created)
+	query.Include("?", nil)
+	query.Include("?", payment.UserID.String())
+	query.Include("?", payment.FundingSourceID.String())
+	query.Include("?", payment.Anonymous)
+	query.Include("?", payment.Campaign)
+	query.Include("?", payment.Status)
+	query.Include("?", payment.Error)
+	query.FlushExpressions(", ")
+	query.SQL += ")"
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return payment, err
 }
 
 func (p *Persister) UpdatePayment(payment *Payment, amount *int, message *string, userID, fsID, campaignID *ID, anonymous *bool) error {
-	changedKeys := []string{}
-	changedValues := []interface{}{}
+	query := pan.New()
+	query.SQL = "UPDATE payments SET"
 	if amount != nil {
 		payment.Amount = *amount
-		changedKeys = append(changedKeys, "amount")
-		changedValues = append(changedValues, payment.Amount)
+		query.Include("amount=?", payment.Amount)
 	}
 	if message != nil {
 		payment.Message = strings.TrimSpace(*message)
-		changedKeys = append(changedKeys, "message")
-		changedValues = append(changedValues, payment.Message)
+		query.Include("message=?", payment.Message)
 	}
 	if userID != nil {
 		payment.UserID = *userID
-		changedKeys = append(changedKeys, "user_id")
-		changedValues = append(changedValues, payment.UserID.String())
+		query.Include("user_id=?", payment.UserID.String())
 	}
 	if fsID != nil {
 		payment.FundingSourceID = *fsID
-		changedKeys = append(changedKeys, "funding_source_id")
-		changedValues = append(changedValues, payment.FundingSourceID.String())
+		query.Include("funding_source_id=?", payment.FundingSourceID.String())
 	}
 	if campaignID != nil {
 		payment.Campaign = *campaignID
-		changedKeys = append(changedKeys, "campaign")
-		changedValues = append(changedValues, payment.Campaign.String())
+		query.Include("campaign=?", payment.Campaign.String())
 	}
 	if anonymous != nil {
 		payment.Anonymous = *anonymous
-		changedKeys = append(changedKeys, "anonymous")
-		changedValues = append(changedValues, payment.Anonymous)
+		query.Include("anonymous=?", payment.Anonymous)
 	}
-	stmt := `UPDATE payments SET`
-	for index, value := range changedKeys {
-		stmt += " " + value + "=$" + strconv.Itoa(index+1)
-		if index+1 < len(changedKeys) {
-			stmt += ","
-		}
-	}
-	stmt += ` WHERE id=$` + strconv.Itoa(len(changedKeys)+1)
-	changedValues = append(changedValues, payment.ID.String())
-	_, err := p.Database.Exec(stmt, changedValues...)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", payment.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
@@ -257,24 +256,23 @@ func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error 
 	} else {
 		payment.Completed = time.Time{}
 	}
-	keys := []string{"status", "error", "completed"}
-	values := []interface{}{payment.Status, payment.Error, payment.Completed}
-	stmt := `UPDATE payments SET`
-	for index, value := range keys {
-		stmt += " " + value + "=$" + strconv.Itoa(index+1)
-		if index+1 < len(keys) {
-			stmt += ","
-		}
-	}
-	stmt += " WHERE id=$" + strconv.Itoa(len(keys)+1)
-	values = append(values, payment.ID.String())
-	_, err := p.Database.Exec(stmt, values...)
+	query := pan.New()
+	query.SQL = "UPDATE payments SET"
+	query.Include("status=?", payment.Status)
+	query.Include("error=?", payment.Error)
+	query.Include("completed=?", payment.Completed)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	query.Include("id=?", payment.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
 func (p *Persister) DeletePayment(payment Payment) error {
-	stmt := `DELETE FROM payments WHERE id=$1;`
-	_, err := p.Database.Exec(stmt, payment.ID.String())
+	query := pan.New()
+	query.SQL = "DELETE FROM payments"
+	query.Include("id=?", payment.ID.String())
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}
