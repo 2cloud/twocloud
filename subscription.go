@@ -103,8 +103,19 @@ func (p *Persister) CreateSubscription(amount uint64, period string, renews time
 			return nil, InvalidPeriodError
 		}
 	}
-	stmt := `INSERT INTO subscriptions VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);`
-	_, err = p.Database.Exec(stmt, id.String(), amount, period, renews, notify, nil, funding_id.String, funding_src, user_id.String(), campaign_id.String())
+	query := pan.New()
+	query.SQL = "INSERT INTO subscriptions VALUES("
+	query.Include("?", id.String())
+	query.Include("?", amount)
+	query.Include("?", period)
+	query.Include("?", renews)
+	query.Include("?", notify)
+	query.Include("?", nil)
+	query.Include("?", funding_id.String())
+	query.Include("?", funding_src)
+	query.Include("?", user_id.String())
+	query.Include("?", campaign_id.String())
+	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	subscription := &Subscription{
 		ID:              id,
 		Amount:          amount,
