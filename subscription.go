@@ -1,6 +1,7 @@
 package twocloud
 
 import (
+	"database/sql"
 	"errors"
 	"github.com/lib/pq"
 	"secondbit.org/pan"
@@ -53,6 +54,7 @@ func (subscription *Subscription) CheckValues() error {
 var UnrecognisedFundingSourceError = errors.New("Unrecognised funding source.")
 var InvalidPeriodError = errors.New("Invalid period.")
 var InvalidStatusError = errors.New("Invalid status.")
+var SubscriptionNotFoundError = errors.New("Subscription not found in the database.")
 
 func (subscription *Subscription) fromRow(row ScannableRow) error {
 	var idStr, fundingIDStr, userIDStr, campaignIDStr string
@@ -254,6 +256,9 @@ func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := subscription.fromRow(row)
 	if err != nil {
+		if err == sql.NoRows {
+			return nil, SubscriptionNotFoundError
+		}
 		return nil, err
 	}
 	return subscription, nil
