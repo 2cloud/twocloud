@@ -256,7 +256,7 @@ func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 	row := p.Database.QueryRow(query.Generate(" "), query.Args...)
 	err := subscription.fromRow(row)
 	if err != nil {
-		if err == sql.NoRows {
+		if err == sql.ErrNoRows {
 			return nil, SubscriptionNotFoundError
 		}
 		return nil, err
