@@ -350,7 +350,7 @@ func (p *Persister) DeleteLink(link Link) error {
 	query.SQL = "UPDATE urls SET"
 	query.Include("sent_count=(sent_counter - 1)")
 	query.IncludeWhere()
-	query.Include("ID=?", link.URL.ID.String())
+	query.Include("id=?", link.URL.ID.String())
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

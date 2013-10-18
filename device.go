@@ -295,7 +295,7 @@ func (p *Persister) updateDevicePusherLastUsed(device Device, pusher string) err
 	return err
 }
 
-func (p *Persister) DeleteDevice(device Device) error {
+func (p *Persister) DeleteDevice(device Device, cascade bool) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM devices"
 	query.IncludeWhere()
@@ -304,6 +304,28 @@ func (p *Persister) DeleteDevice(device Device) error {
 	if err != nil {
 		return err
 	}
-	// TODO: cascade deletion to other models
+	if cascade {
+		// Delete links sent to that device
+		query = pan.New()
+		query.SQL = "DELETE FROM links"
+		query.IncludeWhere()
+		query.Include("receiver=?", device.ID.String())
+		// BUG(paddyforan): Deleting a device will cause URL counts to be out of sync
+		// BUG(paddyforan): Deleting a device will not remove unique URLs from the URL counts
+		_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+		if err != nil {
+			return err
+		}
+		query = pan.New()
+		query.SQL = "DELETE FROM notifications"
+		query.IncludeWhere()
+		query.Include("destination_type=?", "device")
+		query.FlushExpressions(" ")
+		query.Include("destination=?", device.ID.String())
+		_, err = p.Database.Exec(query.Generate(" and "), query.Args...)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
