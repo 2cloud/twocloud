@@ -22,6 +22,8 @@ func GenerateTempCredentials() string {
 	return cred
 }
 
+const CredentialsCreatedTopic = "creds.created"
+
 func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 	tmpcred1 := GenerateTempCredentials()
 	tmpcred2 := GenerateTempCredentials()
@@ -40,6 +42,12 @@ func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 	query.FlushExpressions(", ")
 	query.SQL += ")"
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(CredentialsCreatedTopic, []byte(user.ID.String()+"."+cred1))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return [2]string{cred1, cred2}, err
 }
 

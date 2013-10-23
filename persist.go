@@ -8,6 +8,7 @@ import (
 	"github.com/bradrydzewski/go.stripe"
 	"github.com/lib/pq"
 	"github.com/noeq/noeq"
+	"github.com/secondbit/go-nsq"
 	"log"
 	"log/syslog"
 	"strings"
@@ -18,6 +19,7 @@ type Persister struct {
 	Database  *sql.DB
 	Config    Config
 	Log       Log
+	Publisher *nsq.Writer
 }
 
 type ID uint64
@@ -69,6 +71,11 @@ func NewPersister(config Config) (*Persister, error) {
 	if err != nil {
 		return nil, err
 	}
+	nsqConfig := config.NSQ
+	var publisher *nsq.Writer
+	if nsqConfig.Address != "" {
+		publisher = nsq.NewWriter(nsqConfig.Address)
+	}
 	logConfig := config.Log
 	var logger Log
 	level := LogLevelError
@@ -116,12 +123,42 @@ func NewPersister(config Config) (*Persister, error) {
 		Database:  db,
 		Config:    config,
 		Log:       logger,
+		Publisher: publisher,
 	}, nil
+}
+
+var UnknownNSQError = errors.New("Unknown NSQ error.")
+var UnknownNSQFrameError = errors.New("Unknown NSQ frame type returned.")
+
+func (persister *Persister) Publish(topic string, body []byte) ([]byte, error) {
+	if persister.Publisher == nil {
+		return []byte{}, nil
+	}
+	respType, data, err := persister.Publisher.Publish(topic, body)
+	switch respType {
+	case nsq.FrameTypeResponse:
+		return data, nil
+	case nsq.FrameTypeError:
+		if err == nil {
+			err = UnknownNSQError
+		}
+		return []byte{}, err
+	case nsq.FrameTypeMessage:
+		return data, nil
+	default:
+		return []byte{}, UnknownNSQFrameError
+	}
+	return []byte{}, nil
 }
 
 func (persister *Persister) Close() {
 	persister.Database.Close()
-	persister.Log.Close()
+	if persister.Log.needsClose {
+		persister.Log.Close()
+	}
+	if persister.Publisher != nil {
+		persister.Publisher.Stop()
+	}
 }
 
 func (persister Persister) GetID() (ID, error) {

@@ -21,6 +21,12 @@ var CampaignTableCreateStatement = `CREATE TABLE campaigns (
 
 var MAXINT = 2147483647
 
+const (
+	CampaignCreatedTopic = "campaigns.created"
+	CampaignUpdatedTopic = "campaigns.updated"
+	CampaignDeletedTopic = "campaigns.deleted"
+)
+
 type Campaign struct {
 	ID          ID        `json:"id,omitempty"`
 	Title       string    `json:"title,omitempty"`
@@ -166,6 +172,12 @@ func (p *Persister) AddCampaign(title, description string, goal int, aux bool, s
 	query.FlushExpressions(", ")
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(CampaignCreatedTopic, []byte(campaign.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return campaign, err
 }
 
@@ -200,6 +212,12 @@ func (p *Persister) UpdateCampaign(campaign *Campaign, title, description *strin
 	query.IncludeWhere()
 	query.Include("id=?", campaign.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(CampaignUpdatedTopic, []byte(campaign.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -219,6 +237,12 @@ func (p *Persister) UpdateCampaignAmount(campaign Campaign) (Campaign, error) {
 	query.IncludeWhere()
 	query.Include("id=?", campaign.ID.String())
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(CampaignUpdatedTopic, []byte(campaign.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return campaign, err
 }
 
@@ -230,6 +254,10 @@ func (p *Persister) DeleteCampaign(campaign Campaign) error {
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
+	}
+	_, nsqErr := p.Publish(CampaignDeletedTopic, []byte(campaign.ID.String()))
+	if nsqErr != nil {
+		p.Log.Error(nsqErr.Error())
 	}
 	// TODO: Should we cascade deletion to payments?
 	return nil

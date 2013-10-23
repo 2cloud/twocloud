@@ -21,6 +21,12 @@ var DeviceTableCreateStatement = `CREATE TABLE devices (
 	websockets_last_used timestamp,
 	user_id varchar NOT NULL);`
 
+const (
+	DeviceCreatedTopic = "devices.created"
+	DeviceUpdatedTopic = "devices.updated"
+	DeviceDeletedTopic = "devices.deleted"
+)
+
 type Device struct {
 	ID         ID        `json:"id,omitempty"`
 	Name       string    `json:"name,omitempty"`
@@ -201,6 +207,12 @@ func (p *Persister) AddDevice(name, clientType, ip string, gcmKey *string, user 
 	query.FlushExpressions(", ")
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(DeviceCreatedTopic, []byte(device.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return device, err
 }
 
@@ -241,6 +253,12 @@ func (p *Persister) UpdateDevice(device *Device, name, clientType, gcmKey *strin
 	query.IncludeWhere()
 	query.Include("id=?", device.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(DeviceUpdatedTopic, []byte(device.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -314,6 +332,12 @@ func (p *Persister) DeleteDevices(devices []Device, cascade bool) error {
 	if err != nil {
 		return err
 	}
+	for _, device := range devices {
+		_, nsqErr := p.Publish(DeviceDeletedTopic, []byte(device.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	if cascade {
 		// Delete links sent to those devices
 		err = p.DeleteLinksByDevices(devices)
@@ -344,6 +368,7 @@ func (p *Persister) DeleteDevicesByUsers(users []User, cascade bool) error {
 	if err != nil {
 		return err
 	}
+	// BUG(paddyforan): If devices are deleted by users, no push notifications will be sent.
 	if cascade {
 		// Delete links sent to those users
 		err = p.DeleteLinksByUsers(users)

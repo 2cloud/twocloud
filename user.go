@@ -90,6 +90,13 @@ var MissingEmailError = errors.New("No email address was supplied. An email addr
 var UserNotFoundError = errors.New("User was not found in the database.")
 var EmailAlreadyConfirmedError = errors.New("Email has already been confirmed.")
 
+const (
+	UserCreatedTopic     = "users.created"
+	UserUpdatedTopic     = "users.updated"
+	UserDeletedTopic     = "users.deleted"
+	UserSecretResetTopic = "users.secret_reset"
+)
+
 func ValidateUsername(username string) error {
 	if len(username) < 3 {
 		return InvalidUsernameLengthShortError
@@ -216,6 +223,10 @@ func (p *Persister) Register(username, email string, given_name, family_name *st
 		}
 		return User{}, err
 	}
+	_, nsqErr := p.Publish(UserCreatedTopic, []byte(user.ID.String()))
+	if nsqErr != nil {
+		p.Log.Error(nsqErr.Error())
+	}
 	return user, nil
 }
 
@@ -339,6 +350,12 @@ func (p *Persister) UpdateUser(user *User, email, given_name, family_name *strin
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -354,6 +371,12 @@ func (p *Persister) ResetSecret(user *User) error {
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserSecretResetTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -371,6 +394,12 @@ func (p *Persister) VerifyEmail(user *User, code string) error {
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -382,6 +411,12 @@ func (p *Persister) MakeAdmin(user *User) error {
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -393,6 +428,12 @@ func (p *Persister) StripAdmin(user *User) error {
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -404,6 +445,12 @@ func (p *Persister) SubscribeToNewsletter(user *User) error {
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -415,6 +462,12 @@ func (p *Persister) UnsubscribeFromNewsletter(user *User) error {
 	query.IncludeWhere()
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -432,6 +485,12 @@ func (p *Persister) DeleteUsers(users []User, cascade bool) error {
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
+	}
+	for _, user := range users {
+		_, nsqErr := p.Publish(UserDeletedTopic, []byte(user.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
 	}
 	if cascade {
 		err = p.DeleteAccountsByUsers(users)

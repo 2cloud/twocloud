@@ -88,6 +88,13 @@ func (b *BroadcastFilter) IsValid() bool {
 var InvalidBroadcastFilter = errors.New("Invalid broadcast filter.")
 var NotificationNotFoundError = errors.New("Notification not found.")
 
+const (
+	NotificationCreatedTopic = "notif.created"
+	NotificationUpdatedTopic = "notif.updated"
+	NotificationDeletedTopic = "notif.deleted"
+	NotificationReadTopic    = "notif.read"
+)
+
 func (p *Persister) GetNotificationsByDevice(device Device, before, after ID, count int) ([]Notification, error) {
 	query := pan.New()
 	query.SQL = "SELECT * FROM notifications"
@@ -182,6 +189,10 @@ func (p *Persister) SendNotificationsToUser(user User, notifications []Notificat
 		if err != nil {
 			return []Notification{}, err
 		}
+		_, nsqErr := p.Publish(NotificationCreatedTopic, []byte(id.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
 	}
 	return notifications, nil
 }
@@ -211,6 +222,10 @@ func (p *Persister) SendNotificationsToDevice(device Device, notifications []Not
 		_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 		if err != nil {
 			return []Notification{}, err
+		}
+		_, nsqErr := p.Publish(NotificationCreatedTopic, []byte(id.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
 		}
 	}
 	return notifications, nil
@@ -285,6 +300,12 @@ func (p *Persister) MarkNotificationRead(notification Notification) (Notificatio
 	query.IncludeWhere()
 	query.Include("id=?", notification.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(NotificationReadTopic, []byte(notification.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return notification, err
 }
 
@@ -309,6 +330,7 @@ func (p *Persister) DeleteNotificationsByDevices(devices []Device) error {
 	if err != nil {
 		return err
 	}
+	// BUG(paddyforan): Deleting notifications by devices won't send push notifications
 	return nil
 }
 
@@ -334,6 +356,7 @@ func (p *Persister) DeleteNotificationsByUsers(users []User) error {
 		return err
 	}
 	// BUG(paddyforan): Deleting notifications by users won't delete notifications sent to devices owned by those users
+	// BUG(paddyforan): Deleting notifications by users won't send push notifications
 	return nil
 }
 
@@ -349,6 +372,14 @@ func (p *Persister) DeleteNotifications(notifications []Notification) error {
 	}
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err != nil {
+		for _, notification := range notifications {
+			_, nsqErr := p.Publish(NotificationDeletedTopic, []byte(notification.ID.String()))
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+		}
+	}
 	return err
 }
 

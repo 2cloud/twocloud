@@ -85,6 +85,12 @@ func (subscription *Subscription) fromRow(row ScannableRow) error {
 	return nil
 }
 
+const (
+	SubscriptionCreatedTopic = "subscriptions.created"
+	SubscriptionUpdatedTopic = "subscriptions.updated"
+	SubscriptionDeletedTopic = "subscriptions.deleted"
+)
+
 func (p *Persister) CreateSubscription(amount uint64, period string, renews time.Time, notify bool, campaign_id, user_id, funding_id ID, funding_src string) (*Subscription, error) {
 	id, err := p.GetID()
 	if err != nil {
@@ -128,6 +134,12 @@ func (p *Persister) CreateSubscription(amount uint64, period string, renews time
 		FundingSource:   funding_src,
 		UserID:          user_id,
 		CampaignID:      campaign_id,
+	}
+	if err == nil {
+		_, nsqErr := p.Publish(SubscriptionCreatedTopic, []byte(subscription.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
 	}
 	return subscription, err
 }
@@ -175,6 +187,12 @@ func (p *Persister) UpdateSubscription(sub *Subscription, amount *uint64, period
 	query.IncludeWhere()
 	query.Include("id=?", sub.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(SubscriptionUpdatedTopic, []byte(sub.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -280,6 +298,14 @@ func (p *Persister) CancelSubscriptions(ids []ID) error {
 	}
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		for _, id := range ids {
+			_, nsqErr := p.Publish(SubscriptionDeletedTopic, []byte(id.String()))
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+		}
+	}
 	return err
 }
 
@@ -295,6 +321,7 @@ func (p *Persister) CancelSubscriptionsByUsers(users []User) error {
 	}
 	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	// BUG(paddyforan): If subscriptions are deleted by users, no push notifications will be sent
 	return err
 }
 

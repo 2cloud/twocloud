@@ -110,6 +110,12 @@ func (p *Persister) AddStripeSource(remote_id string, nickname string, user_id I
 	query.FlushExpressions(", ")
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(FundingSourceCreatedTopic, []byte(s.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return s, err
 }
 
@@ -128,6 +134,12 @@ func (p *Persister) UpdateStripeSource(s *Stripe, remote_id *string, nickname *s
 	query.IncludeWhere()
 	query.Include("id=?", s.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(FundingSourceUpdatedTopic, []byte(s.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -158,6 +170,14 @@ func (p *Persister) DeleteStripeSources(sources []Stripe) error {
 	}
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		for _, s := range sources {
+			_, nsqErr := p.Publish(FundingSourceDeletedTopic, []byte(s.ID.String()))
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+		}
+	}
 	return err
 }
 
@@ -173,6 +193,7 @@ func (p *Persister) DeleteStripeSourcesByUsers(users []User) error {
 	}
 	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	// BUG(paddyforan): When Stripe funding sources are deleted by users, no push notifications are sent
 	return err
 }
 

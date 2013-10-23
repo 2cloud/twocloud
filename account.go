@@ -49,6 +49,13 @@ type Account struct {
 	expires      time.Time
 }
 
+const (
+	AccountCreatedTopic  = "accounts.created"
+	AccountUpdatedTopic  = "accounts.updated"
+	AccountDeletedTopic  = "accounts.deleted"
+	AccountAttachedTopic = "accounts.attached"
+)
+
 func (account *Account) IsEmpty() bool {
 	return account.ID.IsZero()
 }
@@ -122,6 +129,12 @@ func (p *Persister) createAccount(account Account) error {
 	query.SQL = "INSERT INTO accounts VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	query.Args = append(query.Args, account.ID.String(), account.Provider, account.ForeignID, account.Added, account.Email, account.EmailVerified, account.DisplayName, account.GivenName, account.FamilyName, account.Picture, account.Locale, account.Timezone, account.Gender, account.accessToken, account.refreshToken, account.expires, account.UserID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(AccountCreatedTopic, []byte(account.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -204,6 +217,10 @@ func (p *Persister) UpdateAccountData(account Account) (Account, error) {
 	if err != nil {
 		return Account{}, err
 	}
+	_, nsqErr := p.Publish(AccountUpdatedTopic, []byte(account.ID.String()))
+	if nsqErr != nil {
+		p.Log.Error(nsqErr.Error())
+	}
 	return account, nil
 }
 
@@ -214,6 +231,12 @@ func (p *Persister) AssociateUserWithAccount(account Account, user ID) error {
 	query.IncludeWhere()
 	query.Include("id=?", account.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(AccountAttachedTopic, []byte(account.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -229,6 +252,14 @@ func (p *Persister) DeleteAccounts(accounts []Account) error {
 	}
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err != nil {
+		for _, account := range accounts {
+			_, nsqErr := p.Publish(AccountDeletedTopic, []byte(account.ID.String()))
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+		}
+	}
 	return err
 }
 
@@ -252,5 +283,6 @@ func (p *Persister) DeleteAccountsByUsers(users []User) error {
 	}
 	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	// BUG(paddyforan): No push notifications get sent if accounts are deleted by user
 	return err
 }

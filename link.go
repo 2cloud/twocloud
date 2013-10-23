@@ -114,6 +114,12 @@ const (
 	RoleReceiver
 )
 
+const (
+	LinkCreatedTopic = "links.created"
+	LinkUpdatedTopic = "links.updated"
+	LinkDeletedTopic = "links.deleted"
+)
+
 var NilURLError = errors.New("Links must supply a URL.")
 var LinkNotFoundError = errors.New("Link not found.")
 
@@ -299,6 +305,10 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 		if err != nil {
 			return []Link{}, err
 		}
+		_, nsqErr := p.Publish(LinkCreatedTopic, []byte(link.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
 	}
 	return links, nil
 }
@@ -335,6 +345,12 @@ func (p *Persister) UpdateLink(link Link, unread *bool, comment *string) (Link, 
 	query.IncludeWhere()
 	query.Include("id=?", link.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(LinkUpdatedTopic, []byte(link.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return link, err
 }
 
@@ -363,6 +379,14 @@ func (p *Persister) DeleteLinks(links []Link) error {
 	query.IncludeWhere()
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		for _, link := range links {
+			_, nsqErr := p.Publish(LinkCreatedTopic, []byte(link.ID.String()))
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+		}
+	}
 	return err
 }
 
@@ -379,6 +403,7 @@ func (p *Persister) DeleteLinksByDevices(devices []Device) error {
 	query.Include("receiver IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	// BUG(paddyforan): Deleting a device will cause URL counts to be out of sync
 	// BUG(paddyforan): Deleting a device will not remove unique URLs from the URL counts
+	// BUG(paddyforan): Deleting links by device will not send push notifications
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
@@ -400,6 +425,7 @@ func (p *Persister) DeleteLinksByUsers(users []User) error {
 	query.Include("receiver_user IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	// BUG(paddyforan): Deleting a user will cause URL counts to be out of sync
 	// BUG(paddyforan): Deleting a user will not remove unique URLs from the URL counts
+	// BUG(paddyforan): Deleting links by user will not send push notifications
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

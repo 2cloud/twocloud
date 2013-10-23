@@ -100,6 +100,16 @@ var PaymentNotFoundError = errors.New("Payment not found.")
 var PaymentInvalidStatusError = errors.New("Invalid status.")
 var PaymentNegativeAmountError = errors.New("Amount was negative.")
 
+const (
+	PaymentCreatedTopic    = "payments.created"
+	PaymentUpdatedTopic    = "payments.updated"
+	PaymentDeletedTopic    = "payments.deleted"
+	PaymentChargedTopic    = "payments.charged"
+	PaymentRefundedTopic   = "payments.refunded"
+	PaymentErrorTopic      = "payments.error"
+	PaymentAnonymizedTopic = "payments.anonymized"
+)
+
 func (p *Persister) GetPayments(before, after ID, count int, status []string, user, campaign, funding_source *ID) ([]Payment, error) {
 	for _, s := range status {
 		if !IsValidPaymentStatus(s) {
@@ -208,6 +218,12 @@ func (p *Persister) AddPayment(amount int, message string, userID, fsID, campaig
 	query.FlushExpressions(", ")
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(PaymentCreatedTopic, []byte(payment.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return payment, err
 }
 
@@ -242,6 +258,12 @@ func (p *Persister) UpdatePayment(payment *Payment, amount *int, message *string
 	query.IncludeWhere()
 	query.Include("id=?", payment.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		_, nsqErr := p.Publish(PaymentUpdatedTopic, []byte(payment.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -265,6 +287,23 @@ func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error 
 	query.IncludeWhere()
 	query.Include("id=?", payment.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		var topic string
+		switch payment.Status {
+		case PAYMENT_STATUS_REFUNDED:
+			topic = PaymentRefundedTopic
+		case PAYMENT_STATUS_SUCCESS:
+			topic = PaymentChargedTopic
+		case PAYMENT_STATUS_ERROR:
+			topic = PaymentErrorTopic
+		default:
+			topic = PaymentUpdatedTopic
+		}
+		_, nsqErr := p.Publish(topic, []byte(payment.ID.String()))
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+	}
 	return err
 }
 
@@ -275,6 +314,10 @@ func (p *Persister) DeletePayment(payment Payment) error {
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
+	}
+	_, nsqErr := p.Publish(PaymentDeletedTopic, []byte(payment.ID.String()))
+	if nsqErr != nil {
+		p.Log.Error(nsqErr.Error())
 	}
 	return nil
 }
@@ -295,6 +338,14 @@ func (p *Persister) AnonymizePayments(payments []Payment) error {
 	}
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err == nil {
+		for _, payment := range payments {
+			_, nsqErr := p.Publish(PaymentAnonymizedTopic, []byte(payment.ID.String()))
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+		}
+	}
 	return err
 }
 
@@ -318,6 +369,7 @@ func (p *Persister) AnonymizePaymentsByUsers(users []User) error {
 	}
 	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	// BUG(paddyforan): If payments are anonymised by user, push notifications won't be sent
 	return err
 }
 
