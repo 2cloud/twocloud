@@ -296,36 +296,69 @@ func (p *Persister) updateDevicePusherLastUsed(device Device, pusher string) err
 }
 
 func (p *Persister) DeleteDevice(device Device, cascade bool) error {
+	return p.DeleteDevices([]Device{device}, cascade)
+}
+
+func (p *Persister) DeleteDevices(devices []Device, cascade bool) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM devices"
 	query.IncludeWhere()
-	query.Include("id=?", device.ID.String())
+	queryKeys := make([]string, len(devices))
+	queryVals := make([]interface{}, len(devices))
+	for _, device := range devices {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, device.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}
 	if cascade {
-		// Delete links sent to that device
-		query = pan.New()
-		query.SQL = "DELETE FROM links"
-		query.IncludeWhere()
-		query.Include("receiver=?", device.ID.String())
-		// BUG(paddyforan): Deleting a device will cause URL counts to be out of sync
-		// BUG(paddyforan): Deleting a device will not remove unique URLs from the URL counts
-		_, err = p.Database.Exec(query.Generate(" "), query.Args...)
+		// Delete links sent to those devices
+		err = p.DeleteLinksByDevices(devices)
 		if err != nil {
 			return err
 		}
-		query = pan.New()
-		query.SQL = "DELETE FROM notifications"
-		query.IncludeWhere()
-		query.Include("destination_type=?", "device")
-		query.FlushExpressions(" ")
-		query.Include("destination=?", device.ID.String())
-		_, err = p.Database.Exec(query.Generate(" and "), query.Args...)
+		// Delete notifications sent to those devices
+		err = p.DeleteNotificationsByDevices(devices)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (p *Persister) DeleteDevicesByUsers(users []User, cascade bool) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM devices"
+	query.IncludeWhere()
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	if err != nil {
+		return err
+	}
+	if cascade {
+		// Delete links sent to those users
+		err = p.DeleteLinksByUsers(users)
+		if err != nil {
+			return err
+		}
+		// Delete notifications sent to those users
+		err = p.DeleteNotificationsByUsers(users)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Persister) DeleteDevicesByUser(user User, cascade bool) error {
+	return p.DeleteDevicesByUsers([]User{user}, cascade)
 }

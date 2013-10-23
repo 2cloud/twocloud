@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"secondbit.org/pan"
+	"strings"
 	"time"
 )
 
@@ -216,20 +217,40 @@ func (p *Persister) AssociateUserWithAccount(account Account, user ID) error {
 	return err
 }
 
-func (p *Persister) DeleteAccount(account Account) error {
+func (p *Persister) DeleteAccounts(accounts []Account) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM accounts"
 	query.IncludeWhere()
-	query.Include("id=?", account.ID.String())
+	queryKeys := make([]string, len(accounts))
+	queryVals := make([]interface{}, len(accounts))
+	for _, account := range accounts {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, account.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
-func (p *Persister) DeleteAccounts(user User) error {
+func (p *Persister) DeleteAccount(account Account) error {
+	return p.DeleteAccounts([]Account{account})
+}
+
+func (p *Persister) DeleteAccountsByUser(user User) error {
+	return p.DeleteAccountsByUsers([]User{user})
+}
+
+func (p *Persister) DeleteAccountsByUsers(users []User) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM accounts"
 	query.IncludeWhere()
-	query.Include("user_id=?", user.ID.String())
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }

@@ -5,6 +5,7 @@ import (
 	"github.com/bradrydzewski/go.stripe"
 	"github.com/lib/pq"
 	"secondbit.org/pan"
+	"strings"
 	"time"
 )
 
@@ -141,13 +142,42 @@ func (p *Persister) UpdateStripeSourceLastUsed(s *Stripe) error {
 	return err
 }
 
-func (p *Persister) DeleteStripeSource(s Stripe) error {
+func (p *Persister) DeleteStripeSource(source Stripe) error {
+	return p.DeleteStripeSources([]Stripe{source})
+}
+
+func (p *Persister) DeleteStripeSources(sources []Stripe) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM stripe"
 	query.IncludeWhere()
-	query.Include("id=?", s.ID.String())
+	queryKeys := make([]string, len(sources))
+	queryVals := make([]interface{}, len(sources))
+	for _, source := range sources {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, source.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
+}
+
+func (p *Persister) DeleteStripeSourcesByUsers(users []User) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM stripe"
+	query.IncludeWhere()
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
+}
+
+func (p *Persister) DeleteStripeSourcesByUser(user User) error {
+	return p.DeleteStripeSourcesByUsers([]User{user})
 }
 
 func (p *Persister) ChargeStripe(s *Stripe, amount int64) error {

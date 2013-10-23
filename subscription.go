@@ -265,19 +265,39 @@ func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 }
 
 func (p *Persister) CancelSubscription(id ID) error {
+	return p.CancelSubscriptions([]ID{id})
+}
+
+func (p *Persister) CancelSubscriptions(ids []ID) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM subscriptions"
 	query.IncludeWhere()
-	query.Include("id=?", id.String())
+	queryKeys := make([]string, len(ids))
+	queryVals := make([]interface{}, len(ids))
+	for _, id := range ids {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, id.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
 }
 
-func (p *Persister) cancelSubscriptionsByUser(user ID) error {
+func (p *Persister) CancelSubscriptionsByUsers(users []User) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM subscriptions"
 	query.IncludeWhere()
-	query.Include("user_id=?", user.String())
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
+}
+
+func (p *Persister) CancelSubscriptionsByUser(user User) error {
+	return p.CancelSubscriptionsByUsers([]User{user})
 }

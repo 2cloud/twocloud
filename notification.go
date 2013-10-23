@@ -288,11 +288,70 @@ func (p *Persister) MarkNotificationRead(notification Notification) (Notificatio
 	return notification, err
 }
 
-func (p *Persister) DeleteNotification(notification Notification) error {
+func (p *Persister) DeleteNotificationsByDevice(device Device) error {
+	return p.DeleteNotificationsByDevices([]Device{device})
+}
+
+func (p *Persister) DeleteNotificationsByDevices(devices []Device) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM notifications"
 	query.IncludeWhere()
-	query.Include("id=?", notification.ID.String())
+	query.Include("destination_type=?", "device")
+	query.FlushExpressions(" ")
+	queryKeys := make([]string, len(devices))
+	queryVals := make([]interface{}, len(devices))
+	for _, device := range devices {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, device.ID.String())
+	}
+	query.Include("destination IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" and "), query.Args...)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *Persister) DeleteNotificationsByUser(user User) error {
+	return p.DeleteNotificationsByUsers([]User{user})
+}
+
+func (p *Persister) DeleteNotificationsByUsers(users []User) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM notifications"
+	query.IncludeWhere()
+	query.Include("destination_type=?", "user")
+	query.FlushExpressions(" ")
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("destination IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" and "), query.Args...)
+	if err != nil {
+		return err
+	}
+	// BUG(paddyforan): Deleting notifications by users won't delete notifications sent to devices owned by those users
+	return nil
+}
+
+func (p *Persister) DeleteNotifications(notifications []Notification) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM notifications"
+	query.IncludeWhere()
+	queryKeys := make([]string, len(notifications))
+	queryVals := make([]interface{}, len(notifications))
+	for _, notification := range notifications {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, notification.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
+}
+
+func (p *Persister) DeleteNotification(notification Notification) error {
+	return p.DeleteNotifications([]Notification{notification})
 }

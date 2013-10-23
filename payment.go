@@ -278,3 +278,49 @@ func (p *Persister) DeletePayment(payment Payment) error {
 	}
 	return nil
 }
+
+func (p *Persister) AnonymizePayments(payments []Payment) error {
+	query := pan.New()
+	query.SQL = "UPDATE payments SET"
+	emptyID := ID(0)
+	query.Include("user_id=?", emptyID.String())
+	query.Include("anonymous", true)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	queryKeys := make([]string, len(payments))
+	queryVals := make([]interface{}, len(payments))
+	for _, payment := range payments {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, payment.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
+}
+
+func (p *Persister) AnonymizePayment(payment Payment) error {
+	return p.AnonymizePayments([]Payment{payment})
+}
+
+func (p *Persister) AnonymizePaymentsByUsers(users []User) error {
+	query := pan.New()
+	query.SQL = "UPDATE payments SET"
+	emptyID := ID(0)
+	query.Include("user_id=?", emptyID.String())
+	query.Include("anonymous", true)
+	query.FlushExpressions(", ")
+	query.IncludeWhere()
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
+}
+
+func (p *Persister) AnonymizePaymentsByUser(user User) error {
+	return p.AnonymizePaymentsByUsers([]User{user})
+}

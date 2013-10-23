@@ -418,15 +418,46 @@ func (p *Persister) UnsubscribeFromNewsletter(user *User) error {
 	return err
 }
 
-func (p *Persister) DeleteUser(user User) error {
+func (p *Persister) DeleteUsers(users []User, cascade bool) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM users"
 	query.IncludeWhere()
-	query.Include("id=?", user.ID.String())
-	_, err := p.Database.Exec(query.Generate(" "), user.ID.String())
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}
-	// TODO: cascade that deletion to other models
+	if cascade {
+		err = p.DeleteAccountsByUsers(users)
+		if err != nil {
+			return err
+		}
+		err = p.DeleteDevicesByUsers(users, true)
+		if err != nil {
+			return err
+		}
+		err = p.DeleteStripeSourcesByUsers(users)
+		if err != nil {
+			return err
+		}
+		err = p.CancelSubscriptionsByUsers(users)
+		if err != nil {
+			return err
+		}
+		err = p.AnonymizePaymentsByUsers(users)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (p *Persister) DeleteUser(user User, cascade bool) error {
+	return p.DeleteUsers([]User{user}, cascade)
 }

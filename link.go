@@ -6,6 +6,7 @@ import (
 	"github.com/PuerkitoBio/purell"
 	"github.com/lib/pq"
 	"secondbit.org/pan"
+	"strings"
 	"time"
 )
 
@@ -338,19 +339,71 @@ func (p *Persister) UpdateLink(link Link, unread *bool, comment *string) (Link, 
 }
 
 func (p *Persister) DeleteLink(link Link) error {
+	return p.DeleteLinks([]Link{link})
+}
+
+func (p *Persister) DeleteLinks(links []Link) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM links"
 	query.IncludeWhere()
-	query.Include("id=?", link.ID.String())
+	queryKeys := make([]string, len(links))
+	queryVals := make([]interface{}, len(links))
+	for _, link := range links {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, link.ID.String())
+	}
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		return err
 	}
 	query.IncludesWhere = false
 	query.SQL = "UPDATE urls SET"
-	query.Include("sent_count=(sent_counter - 1)")
+	query.Include("sent_count=(sent_count - 1)")
 	query.IncludeWhere()
-	query.Include("id=?", link.URL.ID.String())
+	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	return err
+}
+
+func (p *Persister) DeleteLinksByDevices(devices []Device) error {
+	query := pan.New()
+	query.SQL = "DELETE FROM links"
+	query.IncludeWhere()
+	queryKeys := make([]string, len(devices))
+	queryVals := make([]interface{}, len(devices))
+	for _, device := range devices {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, device.ID.String())
+	}
+	query.Include("receiver IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	// BUG(paddyforan): Deleting a device will cause URL counts to be out of sync
+	// BUG(paddyforan): Deleting a device will not remove unique URLs from the URL counts
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
+}
+
+func (p *Persister) DeleteLinksByDevice(device Device) error {
+	return p.DeleteLinksByDevices([]Device{device})
+}
+
+func (p *Persister) DeleteLinksByUsers(users []User) error {
+	query := pan.New()
+	query.SQL = "DELETE Drom links"
+	query.IncludeWhere()
+	queryKeys := make([]string, len(users))
+	queryVals := make([]interface{}, len(users))
+	for _, user := range users {
+		queryKeys = append(queryKeys, "?")
+		queryVals = append(queryVals, user.ID.String())
+	}
+	query.Include("receiver_user IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	// BUG(paddyforan): Deleting a user will cause URL counts to be out of sync
+	// BUG(paddyforan): Deleting a user will not remove unique URLs from the URL counts
+	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
+	return err
+}
+
+func (p *Persister) DeleteLinksByUser(user User) error {
+	return p.DeleteLinksByUsers([]User{user})
 }
