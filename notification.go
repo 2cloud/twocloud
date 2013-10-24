@@ -11,8 +11,8 @@ import (
 
 var NotificationTableCreateStatement = `CREATE TABLE notifications (
 	id varchar primary key,
-	destination varchar NOT NULL,
-	destination_type varchar NOT NULL,
+  user_id varchar NOT NULL,
+  device_id varchar default NULL,
 	nature varchar NOT NULL,
 	unread bool default true,
 	read_by varchar,
@@ -21,22 +21,22 @@ var NotificationTableCreateStatement = `CREATE TABLE notifications (
 	body varchar NOT NULL);`
 
 type Notification struct {
-	ID              ID        `json:"id,omitempty"`
-	Nature          string    `json:"nature,omitempty"`
-	Body            string    `json:"body,omitempty"`
-	Unread          bool      `json:"unread,omitempty"`
-	ReadBy          ID        `json:"read_by,omitempty"`
-	TimeRead        time.Time `json:"time_read,omitempty"`
-	Sent            time.Time `json:"sent,omitempty"`
-	Destination     ID        `json:"owner,omitempty"`
-	DestinationType string    `json:"owner_type,omitempty"`
+	ID       ID        `json:"id,omitempty"`
+	Nature   string    `json:"nature,omitempty"`
+	Body     string    `json:"body,omitempty"`
+	Unread   bool      `json:"unread,omitempty"`
+	ReadBy   ID        `json:"read_by,omitempty"`
+	TimeRead time.Time `json:"time_read,omitempty"`
+	Sent     time.Time `json:"sent,omitempty"`
+	UserID   ID        `json:"user_id,omitempty"`
+	DeviceID *ID       `json:"device_id,omitempty"`
 }
 
 func (n *Notification) fromRow(row ScannableRow) error {
-	var idStr, destinationStr string
-	var readByStr sql.NullString
+	var idStr, userStr string
+	var readByStr, deviceStr sql.NullString
 	var timeRead pq.NullTime
-	err := row.Scan(&idStr, &destinationStr, &n.DestinationType, &n.Nature, &n.Unread, &readByStr, &timeRead, &n.Sent, &n.Body)
+	err := row.Scan(&idStr, &userStr, &deviceStr, &n.Nature, &n.Unread, &readByStr, &timeRead, &n.Sent, &n.Body)
 	if err != nil {
 		return err
 	}
@@ -45,11 +45,18 @@ func (n *Notification) fromRow(row ScannableRow) error {
 		return err
 	}
 	n.ID = id
-	destination, err := IDFromString(destinationStr)
+	user_id, err := IDFromString(userStr)
 	if err != nil {
 		return err
 	}
-	n.Destination = destination
+	n.UserID = user_id
+	if deviceStr.Valid {
+		device_id, err := IDFromString(deviceStr.String)
+		if err != nil {
+			return err
+		}
+		n.DeviceID = &device_id
+	}
 	n.ReadBy = ID(0)
 	if readByStr.Valid {
 		readBy, err := IDFromString(readByStr.String)
@@ -99,7 +106,7 @@ func (p *Persister) GetNotificationsByDevice(device Device, before, after ID, co
 	query := pan.New()
 	query.SQL = "SELECT * FROM notifications"
 	query.IncludeWhere()
-	query.Include("destination=?", device.ID.String())
+	query.Include("device_id=?", device.ID.String())
 	query.IncludeIfNotEmpty("id < ?", before)
 	query.IncludeIfNotEmpty("id > ?", after)
 	query.FlushExpressions(" and ")
@@ -126,7 +133,8 @@ func (p *Persister) GetNotificationsByUser(user User, before, after ID, count in
 	query := pan.New()
 	query.SQL = "SELECT * FROM notifications"
 	query.IncludeWhere()
-	query.Include("destination=?", user.ID.String())
+	query.Include("user_id=?", user.ID.String())
+	query.Include("device_id IS NULL")
 	query.IncludeIfNotEmpty("id < ?", before)
 	query.IncludeIfNotEmpty("id > ?", after)
 	query.FlushExpressions(" and ")
@@ -171,12 +179,11 @@ func (p *Persister) SendNotificationsToUser(user User, notifications []Notificat
 			return []Notification{}, err
 		}
 		notifications[pos].ID = id
-		notifications[pos].Destination = user.ID
-		notifications[pos].DestinationType = "user"
+		notifications[pos].UserID = user.ID
 		query.SQL = "INSERT INTO notifications VALUES("
 		query.Include("?", notifications[pos].ID.String())
-		query.Include("?", notifications[pos].Destination.String())
-		query.Include("?", notifications[pos].DestinationType)
+		query.Include("?", notifications[pos].UserID.String())
+		query.Include("?", nil)
 		query.Include("?", notifications[pos].Nature)
 		query.Include("?", notifications[pos].Unread)
 		query.Include("?", notifications[pos].ReadBy)
@@ -205,12 +212,12 @@ func (p *Persister) SendNotificationsToDevice(device Device, notifications []Not
 			return []Notification{}, err
 		}
 		notifications[pos].ID = id
-		notifications[pos].Destination = device.ID
-		notifications[pos].DestinationType = "device"
+		notifications[pos].UserID = device.UserID
+		notifications[pos].DeviceID = &device.ID
 		query.SQL = "INSERT INTO notifications VALUES("
 		query.Include("?", notifications[pos].ID.String())
-		query.Include("?", notifications[pos].Destination.String())
-		query.Include("?", notifications[pos].DestinationType)
+		query.Include("?", notifications[pos].UserID.String())
+		query.Include("?", notifications[pos].DeviceID.String())
 		query.Include("?", notifications[pos].Nature)
 		query.Include("?", notifications[pos].Unread)
 		query.Include("?", notifications[pos].ReadBy)
@@ -317,7 +324,6 @@ func (p *Persister) DeleteNotificationsByDevices(devices []Device) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM notifications"
 	query.IncludeWhere()
-	query.Include("destination_type=?", "device")
 	query.FlushExpressions(" ")
 	queryKeys := make([]string, len(devices))
 	queryVals := make([]interface{}, len(devices))
@@ -325,7 +331,7 @@ func (p *Persister) DeleteNotificationsByDevices(devices []Device) error {
 		queryKeys = append(queryKeys, "?")
 		queryVals = append(queryVals, device.ID.String())
 	}
-	query.Include("destination IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	query.Include("device_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" and "), query.Args...)
 	if err != nil {
 		return err
@@ -342,7 +348,6 @@ func (p *Persister) DeleteNotificationsByUsers(users []User) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM notifications"
 	query.IncludeWhere()
-	query.Include("destination_type=?", "user")
 	query.FlushExpressions(" ")
 	queryKeys := make([]string, len(users))
 	queryVals := make([]interface{}, len(users))
@@ -350,12 +355,11 @@ func (p *Persister) DeleteNotificationsByUsers(users []User) error {
 		queryKeys = append(queryKeys, "?")
 		queryVals = append(queryVals, user.ID.String())
 	}
-	query.Include("destination IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
+	query.Include("user_id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" and "), query.Args...)
 	if err != nil {
 		return err
 	}
-	// BUG(paddyforan): Deleting notifications by users won't delete notifications sent to devices owned by those users
 	// BUG(paddyforan): Deleting notifications by users won't send push notifications
 	return nil
 }
