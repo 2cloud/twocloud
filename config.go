@@ -1,9 +1,8 @@
 package twocloud
 
 type Config struct {
-	MaintenanceMode bool   `json:"maintenance"`
-	Database        string `json:"db"`
-	Log             struct {
+	Database string `json:"db"`
+	Log      struct {
 		Level string `json:"level"`
 		File  string `json:"file"`
 	} `json:"log"`
