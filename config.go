@@ -24,5 +24,6 @@ type IDGenerator struct {
 }
 
 type NSQ struct {
-	Address string `json:"address"`
+	Address string   `json:"address"`
+	Lookupd []string `json:"lookupd"`
 }
