@@ -26,6 +26,19 @@ type ID uint64
 
 var IDBufferOverflow = errors.New("ID was more than 10 bytes long.")
 
+var PubSubTopics = []string{
+	AccountCreatedTopic, AccountUpdatedTopic, AccountDeletedTopic, AccountAttachedTopic,
+	CampaignCreatedTopic, CampaignUpdatedTopic, CampaignDeletedTopic,
+	CredentialsCreatedTopic,
+	DeviceCreatedTopic, DeviceUpdatedTopic, DeviceDeletedTopic,
+	FundingSourceCreatedTopic, FundingSourceUpdatedTopic, FundingSourceDeletedTopic,
+	LinkCreatedTopic, LinkUpdatedTopic, LinkDeletedTopic,
+	NotificationCreatedTopic, NotificationUpdatedTopic, NotificationDeletedTopic, NotificationReadTopic,
+	PaymentCreatedTopic, PaymentUpdatedTopic, PaymentDeletedTopic, PaymentChargedTopic, PaymentRefundedTopic, PaymentErrorTopic, PaymentAnonymizedTopic,
+	SubscriptionCreatedTopic, SubscriptionUpdatedTopic, SubscriptionDeletedTopic,
+	UserCreatedTopic, UserUpdatedTopic, UserDeletedTopic, UserSecretResetTopic,
+}
+
 func (id *ID) IsZero() bool {
 	return *id == ID(0)
 }
