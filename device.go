@@ -18,7 +18,7 @@ var DeviceTableCreateStatement = `CREATE TABLE devices (
 	created timestamp default CURRENT_TIMESTAMP,
 	gcm_key varchar,
 	gcm_last_used timestamp,
-	websockets_last_used timestamp,
+	sse_last_used timestamp,
 	user_id varchar NOT NULL);`
 
 const (
@@ -39,8 +39,8 @@ type Device struct {
 }
 
 type Pushers struct {
-	GCM        *Pusher `json:"gcm,omitempty"`
-	WebSockets *Pusher `json:"websockets,omitempty"`
+	GCM *Pusher `json:"gcm,omitempty"`
+	SSE *Pusher `json:"sse,omitempty"`
 }
 
 type Pusher struct {
@@ -50,9 +50,9 @@ type Pusher struct {
 
 func (device *Device) fromRow(row ScannableRow) error {
 	var gcm_key sql.NullString
-	var gcm_last_used, websockets_last_used pq.NullTime
+	var gcm_last_used, sse_last_used pq.NullTime
 	var idStr, userIDStr string
-	err := row.Scan(&idStr, &device.Name, &device.ClientType, &device.LastSeen, &device.LastIP, &device.Created, &gcm_key, &gcm_last_used, &websockets_last_used, &userIDStr)
+	err := row.Scan(&idStr, &device.Name, &device.ClientType, &device.LastSeen, &device.LastIP, &device.Created, &gcm_key, &gcm_last_used, &sse_last_used, &userIDStr)
 	if err != nil {
 		return err
 	}
@@ -96,19 +96,19 @@ func (device *Device) fromRow(row ScannableRow) error {
 			device.Pushers.GCM.LastUsed = gcm_last_used.Time
 		}
 	}
-	if websockets_last_used.Valid {
+	if sse_last_used.Valid {
 		if device.Pushers == nil {
 			device.Pushers = &Pushers{
-				WebSockets: &Pusher{
-					LastUsed: websockets_last_used.Time,
+				SSE: &Pusher{
+					LastUsed: sse_last_used.Time,
 				},
 			}
-		} else if device.Pushers.WebSockets == nil {
-			device.Pushers.WebSockets = &Pusher{
-				LastUsed: websockets_last_used.Time,
+		} else if device.Pushers.SSE == nil {
+			device.Pushers.SSE = &Pusher{
+				LastUsed: sse_last_used.Time,
 			}
 		} else {
-			device.Pushers.WebSockets.LastUsed = websockets_last_used.Time
+			device.Pushers.SSE.LastUsed = sse_last_used.Time
 		}
 	}
 	return nil
@@ -281,8 +281,8 @@ func (p *Persister) UpdateDeviceGCMLastUsed(device Device) error {
 	return p.updateDevicePusherLastUsed(device, "gcm")
 }
 
-func (p *Persister) UpdateDeviceWebSocketLastUsed(device Device) error {
-	return p.updateDevicePusherLastUsed(device, "websocket")
+func (p *Persister) UpdateDeviceSSELastUsed(device Device) error {
+	return p.updateDevicePusherLastUsed(device, "sse")
 }
 
 func (p *Persister) updateDevicePusherLastUsed(device Device, pusher string) error {
@@ -298,12 +298,12 @@ func (p *Persister) updateDevicePusherLastUsed(device Device, pusher string) err
 		}
 		device.Pushers.GCM.LastUsed = now
 		query.Include("gcm_last_used=?", device.Pushers.GCM.LastUsed)
-	} else if pusher == "websockets" {
-		if device.Pushers.WebSockets == nil {
-			device.Pushers.WebSockets = &Pusher{}
+	} else if pusher == "sse" {
+		if device.Pushers.SSE == nil {
+			device.Pushers.SSE = &Pusher{}
 		}
-		device.Pushers.WebSockets.LastUsed = now
-		query.Include("websockets_last_used=?", device.Pushers.WebSockets.LastUsed)
+		device.Pushers.SSE.LastUsed = now
+		query.Include("sse_last_used=?", device.Pushers.SSE.LastUsed)
 	} else {
 		return InvalidPusherType
 	}
