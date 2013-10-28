@@ -43,7 +43,7 @@ func (p *Persister) CreateTempCredentials(user User) ([2]string, error) {
 	query.SQL += ")"
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(CredentialsCreatedTopic, []byte(user.ID.String()+"."+cred1))
+		_, nsqErr := p.Publish(CredentialsCreatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}

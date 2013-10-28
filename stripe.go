@@ -111,7 +111,7 @@ func (p *Persister) AddStripeSource(remote_id string, nickname string, user_id I
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(FundingSourceCreatedTopic, []byte(s.ID.String()))
+		_, nsqErr := p.Publish(FundingSourceCreatedTopic, &s.UserID, nil, &s.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -135,7 +135,7 @@ func (p *Persister) UpdateStripeSource(s *Stripe, remote_id *string, nickname *s
 	query.Include("id=?", s.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(FundingSourceUpdatedTopic, []byte(s.ID.String()))
+		_, nsqErr := p.Publish(FundingSourceUpdatedTopic, &s.UserID, nil, &s.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -172,7 +172,7 @@ func (p *Persister) DeleteStripeSources(sources []Stripe) error {
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
 		for _, s := range sources {
-			_, nsqErr := p.Publish(FundingSourceDeletedTopic, []byte(s.ID.String()))
+			_, nsqErr := p.Publish(FundingSourceDeletedTopic, &s.UserID, nil, &s.ID)
 			if nsqErr != nil {
 				p.Log.Error(nsqErr.Error())
 			}

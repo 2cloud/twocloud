@@ -196,7 +196,7 @@ func (p *Persister) SendNotificationsToUser(user User, notifications []Notificat
 		if err != nil {
 			return []Notification{}, err
 		}
-		_, nsqErr := p.Publish(NotificationCreatedTopic, []byte(id.String()))
+		_, nsqErr := p.Publish(NotificationCreatedTopic, &notifications[pos].UserID, nil, &notifications[pos].ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -230,7 +230,7 @@ func (p *Persister) SendNotificationsToDevice(device Device, notifications []Not
 		if err != nil {
 			return []Notification{}, err
 		}
-		_, nsqErr := p.Publish(NotificationCreatedTopic, []byte(id.String()))
+		_, nsqErr := p.Publish(NotificationCreatedTopic, &notifications[pos].UserID, notifications[pos].DeviceID, &notifications[pos].ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -308,7 +308,7 @@ func (p *Persister) MarkNotificationRead(notification Notification) (Notificatio
 	query.Include("id=?", notification.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(NotificationReadTopic, []byte(notification.ID.String()))
+		_, nsqErr := p.Publish(NotificationReadTopic, &notification.UserID, notification.DeviceID, &notification.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -378,7 +378,7 @@ func (p *Persister) DeleteNotifications(notifications []Notification) error {
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err != nil {
 		for _, notification := range notifications {
-			_, nsqErr := p.Publish(NotificationDeletedTopic, []byte(notification.ID.String()))
+			_, nsqErr := p.Publish(NotificationDeletedTopic, &notification.UserID, notification.DeviceID, &notification.ID)
 			if nsqErr != nil {
 				p.Log.Error(nsqErr.Error())
 			}

@@ -223,7 +223,7 @@ func (p *Persister) Register(username, email string, given_name, family_name *st
 		}
 		return User{}, err
 	}
-	_, nsqErr := p.Publish(UserCreatedTopic, []byte(user.ID.String()))
+	_, nsqErr := p.Publish(UserCreatedTopic, &user.ID, nil, nil)
 	if nsqErr != nil {
 		p.Log.Error(nsqErr.Error())
 	}
@@ -351,7 +351,7 @@ func (p *Persister) UpdateUser(user *User, email, given_name, family_name *strin
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserUpdatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -372,7 +372,7 @@ func (p *Persister) ResetSecret(user *User) error {
 	query.Include("id=?", user.ID.String())
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserSecretResetTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserSecretResetTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -395,7 +395,7 @@ func (p *Persister) VerifyEmail(user *User, code string) error {
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserUpdatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -412,7 +412,7 @@ func (p *Persister) MakeAdmin(user *User) error {
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserUpdatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -429,7 +429,7 @@ func (p *Persister) StripAdmin(user *User) error {
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserUpdatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -446,7 +446,7 @@ func (p *Persister) SubscribeToNewsletter(user *User) error {
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserUpdatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -463,7 +463,7 @@ func (p *Persister) UnsubscribeFromNewsletter(user *User) error {
 	query.Include("id=?", user.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(UserUpdatedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserUpdatedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -487,7 +487,7 @@ func (p *Persister) DeleteUsers(users []User, cascade bool) error {
 		return err
 	}
 	for _, user := range users {
-		_, nsqErr := p.Publish(UserDeletedTopic, []byte(user.ID.String()))
+		_, nsqErr := p.Publish(UserDeletedTopic, &user.ID, nil, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}

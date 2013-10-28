@@ -305,7 +305,7 @@ func (p *Persister) AddLinks(links []Link) ([]Link, error) {
 		if err != nil {
 			return []Link{}, err
 		}
-		_, nsqErr := p.Publish(LinkCreatedTopic, []byte(link.ID.String()))
+		_, nsqErr := p.Publish(LinkCreatedTopic, &link.ReceiverUser, &link.Receiver, &link.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -346,7 +346,11 @@ func (p *Persister) UpdateLink(link Link, unread *bool, comment *string) (Link, 
 	query.Include("id=?", link.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(LinkUpdatedTopic, []byte(link.ID.String()))
+		_, nsqErr := p.Publish(LinkUpdatedTopic, &link.ReceiverUser, &link.Receiver, &link.ID)
+		if nsqErr != nil {
+			p.Log.Error(nsqErr.Error())
+		}
+		_, nsqErr = p.Publish(LinkUpdatedTopic, &link.SenderUser, &link.Sender, &link.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -381,7 +385,11 @@ func (p *Persister) DeleteLinks(links []Link) error {
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
 		for _, link := range links {
-			_, nsqErr := p.Publish(LinkCreatedTopic, []byte(link.ID.String()))
+			_, nsqErr := p.Publish(LinkDeletedTopic, &link.ReceiverUser, &link.Receiver, &link.ID)
+			if nsqErr != nil {
+				p.Log.Error(nsqErr.Error())
+			}
+			_, nsqErr = p.Publish(LinkDeletedTopic, &link.SenderUser, &link.Sender, &link.ID)
 			if nsqErr != nil {
 				p.Log.Error(nsqErr.Error())
 			}

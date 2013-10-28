@@ -208,7 +208,7 @@ func (p *Persister) AddDevice(name, clientType, ip string, gcmKey *string, user 
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(DeviceCreatedTopic, []byte(device.ID.String()))
+		_, nsqErr := p.Publish(DeviceCreatedTopic, &user.ID, &device.ID, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -254,7 +254,7 @@ func (p *Persister) UpdateDevice(device *Device, name, clientType, gcmKey *strin
 	query.Include("id=?", device.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(DeviceUpdatedTopic, []byte(device.ID.String()))
+		_, nsqErr := p.Publish(DeviceUpdatedTopic, &device.UserID, &device.ID, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -333,7 +333,7 @@ func (p *Persister) DeleteDevices(devices []Device, cascade bool) error {
 		return err
 	}
 	for _, device := range devices {
-		_, nsqErr := p.Publish(DeviceDeletedTopic, []byte(device.ID.String()))
+		_, nsqErr := p.Publish(DeviceDeletedTopic, &device.UserID, &device.ID, nil)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}

@@ -136,7 +136,7 @@ func (p *Persister) CreateSubscription(amount uint64, period string, renews time
 		CampaignID:      campaign_id,
 	}
 	if err == nil {
-		_, nsqErr := p.Publish(SubscriptionCreatedTopic, []byte(subscription.ID.String()))
+		_, nsqErr := p.Publish(SubscriptionCreatedTopic, &subscription.UserID, nil, &subscription.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -188,7 +188,7 @@ func (p *Persister) UpdateSubscription(sub *Subscription, amount *uint64, period
 	query.Include("id=?", sub.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(SubscriptionUpdatedTopic, []byte(sub.ID.String()))
+		_, nsqErr := p.Publish(SubscriptionUpdatedTopic, &sub.UserID, nil, &sub.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -282,25 +282,25 @@ func (p *Persister) GetSubscription(id ID) (*Subscription, error) {
 	return subscription, nil
 }
 
-func (p *Persister) CancelSubscription(id ID) error {
-	return p.CancelSubscriptions([]ID{id})
+func (p *Persister) CancelSubscription(subscription Subscription) error {
+	return p.CancelSubscriptions([]Subscription{subscription})
 }
 
-func (p *Persister) CancelSubscriptions(ids []ID) error {
+func (p *Persister) CancelSubscriptions(subscriptions []Subscription) error {
 	query := pan.New()
 	query.SQL = "DELETE FROM subscriptions"
 	query.IncludeWhere()
-	queryKeys := make([]string, len(ids))
-	queryVals := make([]interface{}, len(ids))
-	for _, id := range ids {
+	queryKeys := make([]string, len(subscriptions))
+	queryVals := make([]interface{}, len(subscriptions))
+	for _, subscription := range subscriptions {
 		queryKeys = append(queryKeys, "?")
-		queryVals = append(queryVals, id.String())
+		queryVals = append(queryVals, subscription.ID.String())
 	}
 	query.Include("id IN("+strings.Join(queryKeys, ", ")+")", queryVals...)
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		for _, id := range ids {
-			_, nsqErr := p.Publish(SubscriptionDeletedTopic, []byte(id.String()))
+		for _, subscription := range subscriptions {
+			_, nsqErr := p.Publish(SubscriptionDeletedTopic, &subscription.UserID, nil, &subscription.ID)
 			if nsqErr != nil {
 				p.Log.Error(nsqErr.Error())
 			}

@@ -173,7 +173,7 @@ func (p *Persister) AddCampaign(title, description string, goal int, aux bool, s
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(CampaignCreatedTopic, []byte(campaign.ID.String()))
+		_, nsqErr := p.Publish(CampaignCreatedTopic, nil, nil, &campaign.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -213,7 +213,7 @@ func (p *Persister) UpdateCampaign(campaign *Campaign, title, description *strin
 	query.Include("id=?", campaign.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(CampaignUpdatedTopic, []byte(campaign.ID.String()))
+		_, nsqErr := p.Publish(CampaignUpdatedTopic, nil, nil, &campaign.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -238,7 +238,7 @@ func (p *Persister) UpdateCampaignAmount(campaign Campaign) (Campaign, error) {
 	query.Include("id=?", campaign.ID.String())
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(CampaignUpdatedTopic, []byte(campaign.ID.String()))
+		_, nsqErr := p.Publish(CampaignUpdatedTopic, nil, nil, &campaign.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -255,7 +255,7 @@ func (p *Persister) DeleteCampaign(campaign Campaign) error {
 	if err != nil {
 		return err
 	}
-	_, nsqErr := p.Publish(CampaignDeletedTopic, []byte(campaign.ID.String()))
+	_, nsqErr := p.Publish(CampaignDeletedTopic, nil, nil, &campaign.ID)
 	if nsqErr != nil {
 		p.Log.Error(nsqErr.Error())
 	}

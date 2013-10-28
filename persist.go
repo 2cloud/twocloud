@@ -143,11 +143,23 @@ func NewPersister(config Config) (*Persister, error) {
 var UnknownNSQError = errors.New("Unknown NSQ error.")
 var UnknownNSQFrameError = errors.New("Unknown NSQ frame type returned.")
 
-func (persister *Persister) Publish(topic string, body []byte) ([]byte, error) {
+func (persister *Persister) Publish(topic string, user, device, record *ID) ([]byte, error) {
 	if persister.Publisher == nil {
 		return []byte{}, nil
 	}
-	respType, data, err := persister.Publisher.Publish(topic, body)
+	data := []byte{}
+	if user != nil {
+		data = append(data, []byte(user.String())...)
+	}
+	data = append(data, []byte("/")...)
+	if device != nil {
+		data = append(data, []byte(device.String())...)
+	}
+	data = append(data, []byte("/")...)
+	if record != nil {
+		data = append(data, []byte(record.String())...)
+	}
+	respType, data, err := persister.Publisher.Publish(topic, data)
 	switch respType {
 	case nsq.FrameTypeResponse:
 		return data, nil

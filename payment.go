@@ -219,7 +219,7 @@ func (p *Persister) AddPayment(amount int, message string, userID, fsID, campaig
 	query.SQL += ")"
 	_, err = p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(PaymentCreatedTopic, []byte(payment.ID.String()))
+		_, nsqErr := p.Publish(PaymentCreatedTopic, &payment.UserID, nil, &payment.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -259,7 +259,7 @@ func (p *Persister) UpdatePayment(payment *Payment, amount *int, message *string
 	query.Include("id=?", payment.ID.String())
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
-		_, nsqErr := p.Publish(PaymentUpdatedTopic, []byte(payment.ID.String()))
+		_, nsqErr := p.Publish(PaymentUpdatedTopic, &payment.UserID, nil, &payment.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -299,7 +299,7 @@ func (p *Persister) UpdatePaymentStatus(payment *Payment, status, payment_error 
 		default:
 			topic = PaymentUpdatedTopic
 		}
-		_, nsqErr := p.Publish(topic, []byte(payment.ID.String()))
+		_, nsqErr := p.Publish(topic, &payment.UserID, nil, &payment.ID)
 		if nsqErr != nil {
 			p.Log.Error(nsqErr.Error())
 		}
@@ -315,7 +315,7 @@ func (p *Persister) DeletePayment(payment Payment) error {
 	if err != nil {
 		return err
 	}
-	_, nsqErr := p.Publish(PaymentDeletedTopic, []byte(payment.ID.String()))
+	_, nsqErr := p.Publish(PaymentDeletedTopic, &payment.UserID, nil, &payment.ID)
 	if nsqErr != nil {
 		p.Log.Error(nsqErr.Error())
 	}
@@ -340,7 +340,7 @@ func (p *Persister) AnonymizePayments(payments []Payment) error {
 	_, err := p.Database.Exec(query.Generate(" "), query.Args...)
 	if err == nil {
 		for _, payment := range payments {
-			_, nsqErr := p.Publish(PaymentAnonymizedTopic, []byte(payment.ID.String()))
+			_, nsqErr := p.Publish(PaymentAnonymizedTopic, &payment.UserID, nil, &payment.ID)
 			if nsqErr != nil {
 				p.Log.Error(nsqErr.Error())
 			}
