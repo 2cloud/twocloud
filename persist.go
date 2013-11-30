@@ -4,14 +4,17 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"github.com/bradrydzewski/go.stripe"
+	"github.com/cactus/go-statsd-client/statsd"
 	"github.com/lib/pq"
 	"github.com/noeq/noeq"
 	"github.com/secondbit/go-nsq"
 	"log"
 	"log/syslog"
 	"strings"
+	"time"
 )
 
 type Persister struct {
@@ -20,24 +23,16 @@ type Persister struct {
 	Config    Config
 	Log       Log
 	Publisher *nsq.Writer
+	Stats     *statsd.Client
 }
 
 type ID uint64
 
 var IDBufferOverflow = errors.New("ID was more than 10 bytes long.")
 
-var PubSubTopics = []string{
-	AccountCreatedTopic, AccountUpdatedTopic, AccountDeletedTopic, AccountAttachedTopic,
-	CampaignCreatedTopic, CampaignUpdatedTopic, CampaignDeletedTopic,
-	CredentialsCreatedTopic,
-	DeviceCreatedTopic, DeviceUpdatedTopic, DeviceDeletedTopic,
-	FundingSourceCreatedTopic, FundingSourceUpdatedTopic, FundingSourceDeletedTopic,
-	LinkCreatedTopic, LinkUpdatedTopic, LinkDeletedTopic,
-	NotificationCreatedTopic, NotificationUpdatedTopic, NotificationDeletedTopic, NotificationReadTopic,
-	PaymentCreatedTopic, PaymentUpdatedTopic, PaymentDeletedTopic, PaymentChargedTopic, PaymentRefundedTopic, PaymentErrorTopic, PaymentAnonymizedTopic,
-	SubscriptionCreatedTopic, SubscriptionUpdatedTopic, SubscriptionDeletedTopic,
-	UserCreatedTopic, UserUpdatedTopic, UserDeletedTopic, UserSecretResetTopic,
-}
+const NSQTopic = "api_events"
+
+const StatsDPrefix = "2cloud"
 
 func (id *ID) IsZero() bool {
 	return *id == ID(0)
@@ -83,6 +78,13 @@ func NewPersister(config Config) (*Persister, error) {
 	db, err := sql.Open("postgres", databaseConfig)
 	if err != nil {
 		return nil, err
+	}
+	var statsDClient *statsd.Client
+	if config.Stats != "" {
+		statsDClient, err = statsd.Dial(config.Stats, StatsDPrefix)
+		if err != nil {
+			return nil, err
+		}
 	}
 	nsqConfig := config.NSQ
 	var publisher *nsq.Writer
@@ -137,29 +139,35 @@ func NewPersister(config Config) (*Persister, error) {
 		Config:    config,
 		Log:       logger,
 		Publisher: publisher,
+		Stats:     statsDClient,
 	}, nil
 }
 
 var UnknownNSQError = errors.New("Unknown NSQ error.")
 var UnknownNSQFrameError = errors.New("Unknown NSQ frame type returned.")
 
+type NSQEvent struct {
+	Topic  string `json:"topic,omitempty"`
+	User   *ID    `json:"user,omitempty"`
+	Device *ID    `json:"device,omitempty"`
+	Record *ID    `json:"id,omitempty"`
+}
+
 func (persister *Persister) Publish(topic string, user, device, record *ID) ([]byte, error) {
 	if persister.Publisher == nil {
 		return []byte{}, nil
 	}
-	data := []byte{}
-	if user != nil {
-		data = append(data, []byte(user.String())...)
+	n := NSQEvent{
+		Topic:  topic,
+		User:   user,
+		Device: device,
+		Record: record,
 	}
-	data = append(data, []byte("/")...)
-	if device != nil {
-		data = append(data, []byte(device.String())...)
+	body, err := json.Marshal(n)
+	if err != nil {
+		return []byte{}, err
 	}
-	data = append(data, []byte("/")...)
-	if record != nil {
-		data = append(data, []byte(record.String())...)
-	}
-	respType, data, err := persister.Publisher.Publish(topic, data)
+	respType, data, err := persister.Publisher.Publish(NSQTopic, body)
 	switch respType {
 	case nsq.FrameTypeResponse:
 		return data, nil
@@ -184,6 +192,9 @@ func (persister *Persister) Close() {
 	if persister.Publisher != nil {
 		persister.Publisher.Stop()
 	}
+	if persister.Stats != nil {
+		persister.Stats.Close()
+	}
 }
 
 func (persister Persister) GetID() (ID, error) {
@@ -199,6 +210,47 @@ func (persister Persister) GetID() (ID, error) {
 	}
 	persister.Log.Error("No ID generated.")
 	return ID(id), err
+}
+
+func (persister Persister) Time(start time.Time, name string) {
+	if persister.Stats == nil {
+		return
+	}
+	elapsed := int64(time.Since(start) / time.Millisecond)
+	err := persister.Stats.Timing(name, elapsed, 1.0)
+	if err != nil {
+		persister.Log.Error("Error logging timer: %s", err.Error())
+	}
+}
+
+func (persister Persister) IncrementStat(name string, amount int64) {
+	if persister.Stats == nil {
+		return
+	}
+	err := persister.Stats.Inc(name, amount, 1.0)
+	if err != nil {
+		persister.Log.Error("Error incrementing stat: %s", err.Error())
+	}
+}
+
+func (persister Persister) DecrementStat(name string, amount int64) {
+	if persister.Stats == nil {
+		return
+	}
+	err := persister.Stats.Dec(name, amount, 1.0)
+	if err != nil {
+		persister.Log.Error("Error decrementing stat: %s", err.Error())
+	}
+}
+
+func (persister Persister) SetGaugeStat(name string, amount int64) {
+	if persister.Stats == nil {
+		return
+	}
+	err := persister.Stats.Gauge(name, amount, 1.0)
+	if err != nil {
+		persister.Log.Error("Error setting stat: %s", err.Error())
+	}
 }
 
 type ScannableRow interface {

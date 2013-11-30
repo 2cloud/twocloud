@@ -10,6 +10,7 @@ type Config struct {
 	Generator IDGenerator `json:"id_gen"`
 	Stripe    string      `json:"stripe"`
 	NSQ       NSQ         `json:"nsq"`
+	Stats     string      `json:"stats"`
 }
 
 type OAuthClient struct {
