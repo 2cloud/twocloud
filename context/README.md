@@ -1,8 +1,6 @@
-use 'godoc cmd//target' for documentation on the /target command 
-
 
 # context
-    import "."
+    import "get.2cloud.org/twocloud/context"
 
 Package context exposes common environment utilities.
 

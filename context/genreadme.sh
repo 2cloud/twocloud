@@ -1,1 +1,4 @@
-godoc2md . > README.md
+WD=${PWD}
+TRUNK=${GOPATH#;}src/
+PACKAGE=${WD##$TRUNK}
+godoc2md $PACKAGE > README.md
