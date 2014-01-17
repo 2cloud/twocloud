@@ -1,0 +1,5 @@
+version: "1.0.0"
+log: "/var/logs/2cloud.log"
+log_level: "warn"
+statsd: "127.0.0.1:8125"
+statsd_prefix: "2cloud."
